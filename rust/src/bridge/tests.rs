@@ -30,7 +30,111 @@ fn abi_layout_matches_cpp_contract() {
     );
     assert_eq!(std::mem::size_of::<MemoryDelta>(), 16);
     assert_eq!(std::mem::size_of::<PersistenceStats>(), 8);
+    assert_eq!(std::mem::size_of::<AppearanceItem>(), 8);
+    assert_eq!(std::mem::align_of::<AppearanceItem>(), 4);
+    assert_eq!(std::mem::size_of::<AppearanceResult>(), 40);
+    assert_eq!(std::mem::align_of::<AppearanceResult>(), 4);
+    assert_eq!(
+        std::mem::offset_of!(AppearanceResult, appearance_matched),
+        12
+    );
+    assert_eq!(std::mem::offset_of!(AppearanceResult, recognized), 16);
+    assert_eq!(
+        std::mem::offset_of!(AppearanceResult, linked_by_continuity),
+        20
+    );
+    assert_eq!(
+        std::mem::offset_of!(AppearanceResult, known_appearances),
+        36
+    );
     assert_eq!(std::mem::size_of::<BridgeStatus>(), 4);
+}
+
+#[test]
+fn appearance_ffi_learns_then_matches_without_mutating_memory_values() {
+    let context = Context::new();
+    let items = [AppearanceItem {
+        form_id: 0x1000,
+        slot_mask: 1 << 2,
+    }];
+    let mut result = AppearanceResult::default();
+    let mut memory = MemorySnapshot::default();
+    // SAFETY: all pointers refer to live, exclusively owned test storage.
+    unsafe {
+        assert_eq!(
+            skyrim_remember_register(context.0, 123, 10.0),
+            BridgeStatus::Created
+        );
+        assert_eq!(
+            skyrim_remember_observe_appearance(
+                context.0,
+                123,
+                10.0,
+                items.as_ptr(),
+                items.len(),
+                0,
+                0,
+                &mut result,
+            ),
+            BridgeStatus::Ok
+        );
+        assert_eq!(result.appearance_matched, 0);
+        assert_eq!(result.recognized, 0);
+        assert_eq!(result.learned, 1);
+        assert_eq!(result.item_count, 1);
+        assert_eq!(
+            skyrim_remember_get(context.0, 123, 10.0, &mut memory),
+            BridgeStatus::Ok
+        );
+    }
+    assert_eq!(memory.recognition, 0.0);
+    assert_eq!(memory.fear, 0.0);
+}
+
+#[test]
+fn appearance_evaluation_is_pure_and_reports_normalized_item_count() {
+    let context = Context::new();
+    let items = [
+        AppearanceItem {
+            form_id: 0x1000,
+            slot_mask: 1 << 2,
+        },
+        AppearanceItem {
+            form_id: 0x1000,
+            slot_mask: 1 << 3,
+        },
+    ];
+    let mut result = AppearanceResult::default();
+    // SAFETY: context, input, and output storage remain live for both calls.
+    unsafe {
+        assert_eq!(
+            skyrim_remember_register(context.0, 123, 10.0),
+            BridgeStatus::Created
+        );
+        assert_eq!(
+            skyrim_remember_evaluate_appearance(
+                context.0,
+                123,
+                items.as_ptr(),
+                items.len(),
+                1,
+                0,
+                &mut result,
+            ),
+            BridgeStatus::Ok
+        );
+    }
+    assert_eq!(result.recognized, 1);
+    assert_eq!(result.learned, 0);
+    assert_eq!(result.item_count, 1);
+    assert_eq!(result.known_appearances, 0);
+    // SAFETY: this test owns the live context.
+    assert!(unsafe { &*context.0 }
+        .store
+        .lock()
+        .unwrap()
+        .known_appearances(NpcId::new(123).unwrap())
+        .is_empty());
 }
 
 #[test]
@@ -258,6 +362,8 @@ fn rejects_null_arguments_and_zero_ids_without_mutation() {
         fear: 7.0,
         ..Default::default()
     };
+    let mut appearance = AppearanceResult::default();
+    let mut written = 77_usize;
     // SAFETY: null arguments are explicitly supported; other pointers are valid.
     unsafe {
         skyrim_remember_destroy(ptr::null_mut());
@@ -285,9 +391,27 @@ fn rejects_null_arguments_and_zero_ids_without_mutation() {
             skyrim_remember_get(context.0, 0, 1.0, &mut snapshot),
             BridgeStatus::InvalidId
         );
+        assert_eq!(
+            skyrim_remember_observe_appearance(
+                context.0,
+                123,
+                1.0,
+                ptr::null(),
+                0,
+                0,
+                2,
+                &mut appearance,
+            ),
+            BridgeStatus::InvalidArgument
+        );
+        assert_eq!(
+            skyrim_remember_serialize(context.0, ptr::null_mut(), 1, &mut written),
+            BridgeStatus::InvalidArgument
+        );
         assert!((*context.0).store.lock().unwrap().is_empty());
     }
     assert_eq!(snapshot.fear, 7.0);
+    assert_eq!(written, 77);
 }
 
 #[test]

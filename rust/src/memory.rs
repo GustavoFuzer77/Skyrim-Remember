@@ -1,26 +1,13 @@
+//! Who an NPC remembers and how strongly, independent of what it saw.
+//!
+//! The four memory axes and their decay live here; the appearance comparison
+//! that feeds them lives in [`crate::appearance`], and every number both of
+//! them read lives in [`crate::tuning`].
+
+use crate::appearance::KnownAppearance;
+use crate::tuning::{DecayHalfLives, Tuning, MAX_MEMORY_VALUE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-pub const MAX_MEMORY_VALUE: f32 = 100.0;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DecayHalfLives {
-    pub recognition_hours: f64,
-    pub suspicion_hours: f64,
-    pub fear_hours: f64,
-    pub respect_hours: f64,
-}
-
-impl Default for DecayHalfLives {
-    fn default() -> Self {
-        Self {
-            recognition_hours: 24.0 * 30.0,
-            suspicion_hours: 48.0,
-            fear_hours: 72.0,
-            respect_hours: 24.0 * 30.0,
-        }
-    }
-}
 
 /// Identity of one actor reference in the current game session.
 ///
@@ -101,14 +88,28 @@ fn bounded_add(value: f32, delta: f32) -> f32 {
     (value + delta).clamp(0.0, MAX_MEMORY_VALUE)
 }
 
+/// Every NPC memory of one session, plus the parameters they are evaluated by.
 #[derive(Debug, Default)]
 pub struct MemoryStore {
-    memories: HashMap<NpcId, NpcMemory>,
+    pub(crate) memories: HashMap<NpcId, NpcMemory>,
+    pub(crate) appearances: HashMap<NpcId, Vec<KnownAppearance>>,
+    pub(crate) tuning: Tuning,
 }
 
 impl MemoryStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_tuning(tuning: Tuning) -> Self {
+        Self {
+            tuning,
+            ..Self::default()
+        }
+    }
+
+    pub fn tuning(&self) -> &Tuning {
+        &self.tuning
     }
 
     pub fn len(&self) -> usize {
@@ -137,19 +138,72 @@ impl MemoryStore {
             .or_insert_with(|| NpcMemory::new(game_days))
     }
 
-    pub fn replace(&mut self, memories: HashMap<NpcId, NpcMemory>) {
-        self.memories = memories;
+    /// Brings an existing memory forward to `game_days`. Creates nothing.
+    pub fn touch(&mut self, npc_id: NpcId, game_days: f64) -> Option<&mut NpcMemory> {
+        let half_lives = self.tuning.decay;
+        let memory = self.memories.get_mut(&npc_id)?;
+        memory.apply_decay(game_days, half_lives);
+        Some(memory)
+    }
+
+    /// Brings a memory forward to `game_days`, creating it when absent.
+    pub fn touch_or_create(&mut self, npc_id: NpcId, game_days: f64) -> &mut NpcMemory {
+        let half_lives = self.tuning.decay;
+        let memory = self
+            .memories
+            .entry(npc_id)
+            .or_insert_with(|| NpcMemory::new(game_days));
+        memory.apply_decay(game_days, half_lives);
+        memory
+    }
+
+    /// Registers a reference without changing its values. Reports whether the
+    /// memory had to be created.
+    pub fn register(&mut self, npc_id: NpcId, game_days: f64) -> bool {
+        let created = !self.memories.contains_key(&npc_id);
+        self.touch_or_create(npc_id, game_days);
+        created
+    }
+
+    /// Swaps in restored data while keeping this store's tuning.
+    pub fn replace(&mut self, other: Self) {
+        self.memories = other.memories;
+        self.appearances = other.appearances;
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&NpcId, &NpcMemory)> {
         self.memories.iter()
     }
 
+    pub fn known_appearances(&self, npc_id: NpcId) -> &[KnownAppearance] {
+        self.appearances
+            .get(&npc_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn restore_entry(
+        &mut self,
+        npc_id: NpcId,
+        memory: NpcMemory,
+        appearances: Vec<KnownAppearance>,
+    ) {
+        self.memories.insert(npc_id, memory);
+        if !appearances.is_empty() {
+            self.appearances.insert(npc_id, appearances);
+        }
+    }
+
     pub fn remove(&mut self, npc_id: NpcId) -> Option<NpcMemory> {
+        self.appearances.remove(&npc_id);
         self.memories.remove(&npc_id)
     }
 
     pub fn clear(&mut self) {
         self.memories.clear();
+        self.appearances.clear();
     }
 }
+
+#[cfg(test)]
+mod tests;

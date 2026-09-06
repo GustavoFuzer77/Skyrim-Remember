@@ -4,7 +4,16 @@
 #include <cstdint>
 #include <type_traits>
 
+// Hand-written mirror of the `#[no_mangle]` surface in rust/src/bridge.rs and
+// rust/src/lib.rs. Three independent checks keep the two sides honest:
+//   * the static_asserts below pin this side's layout;
+//   * `bridge::tests::abi_layout_matches_cpp_contract` pins the Rust side's;
+//   * BridgeSmoke compares the two version constants at run time.
+// Bump the version on both sides for any signature, layout, or field-meaning
+// change.
 struct MemoryEngine;
+
+inline constexpr std::uint32_t SkyrimRememberAbiVersion = 7;
 
 enum class BridgeStatus : std::uint32_t {
   Ok = 0,
@@ -38,6 +47,26 @@ struct PersistenceStats {
   std::uint32_t unresolved;
 };
 
+struct AppearanceItem {
+  std::uint32_t formId;
+  std::uint32_t slotMask;
+
+  bool operator==(const AppearanceItem &) const = default;
+};
+
+struct AppearanceResult {
+  float outfitSimilarity;
+  float identityConfidence;
+  float recognitionThreshold;
+  std::uint32_t appearanceMatched;
+  std::uint32_t recognized;
+  std::uint32_t linkedByContinuity;
+  std::uint32_t learned;
+  std::uint32_t faceVisible;
+  std::uint32_t itemCount;
+  std::uint32_t knownAppearances;
+};
+
 static_assert(std::is_standard_layout_v<MemorySnapshot>);
 static_assert(sizeof(MemorySnapshot) == 24 && alignof(MemorySnapshot) == 8);
 static_assert(offsetof(MemorySnapshot, recognition) == 0);
@@ -47,6 +76,13 @@ static_assert(offsetof(MemorySnapshot, respect) == 12);
 static_assert(offsetof(MemorySnapshot, lastDecayGameDays) == 16);
 static_assert(sizeof(MemoryDelta) == 16 && alignof(MemoryDelta) == 4);
 static_assert(sizeof(PersistenceStats) == 8);
+static_assert(sizeof(AppearanceItem) == 8 && alignof(AppearanceItem) == 4);
+static_assert(sizeof(AppearanceResult) == 40 && alignof(AppearanceResult) == 4);
+static_assert(offsetof(AppearanceResult, outfitSimilarity) == 0);
+static_assert(offsetof(AppearanceResult, appearanceMatched) == 12);
+static_assert(offsetof(AppearanceResult, recognized) == 16);
+static_assert(offsetof(AppearanceResult, linkedByContinuity) == 20);
+static_assert(offsetof(AppearanceResult, knownAppearances) == 36);
 static_assert(sizeof(BridgeStatus) == 4);
 
 extern "C" {
@@ -80,6 +116,19 @@ BridgeStatus skyrim_remember_apply_delta(const MemoryEngine *engine,
                                          std::uint32_t reference_form_id,
                                          double game_days, MemoryDelta delta,
                                          MemorySnapshot *output) noexcept;
+
+BridgeStatus skyrim_remember_observe_appearance(
+    const MemoryEngine *engine, std::uint32_t reference_form_id,
+    double game_days, const AppearanceItem *items, std::size_t item_count,
+    std::uint32_t face_visible, std::uint32_t visual_continuity,
+    AppearanceResult *output) noexcept;
+
+// Pure recognition query: never creates, learns, or refreshes an appearance.
+BridgeStatus skyrim_remember_evaluate_appearance(
+    const MemoryEngine *engine, std::uint32_t reference_form_id,
+    const AppearanceItem *items, std::size_t item_count,
+    std::uint32_t face_visible, std::uint32_t visual_continuity,
+    AppearanceResult *output) noexcept;
 
 BridgeStatus skyrim_remember_serialize(const MemoryEngine *engine,
                                        std::uint8_t *output,

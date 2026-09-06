@@ -1,14 +1,29 @@
 use std::ffi::{c_char, CStr};
 
+mod appearance;
 mod bridge;
 mod memory;
 mod persistence;
+mod tuning;
 
 pub use bridge::*;
 
-pub use memory::{DecayHalfLives, MemoryStore, NpcId, NpcMemory};
+pub use appearance::{
+    appearance_is_valid, outfit_similarity, AppearanceCategory, AppearanceItem,
+    AppearanceObservation, KnownAppearance,
+};
 
-pub const ABI_VERSION: u32 = 3;
+pub use memory::{MemoryStore, NpcId, NpcMemory};
+
+pub use tuning::{
+    AppearanceWeights, DecayHalfLives, Limits, RecognitionTuning, Tuning, MAX_APPEARANCE_ITEMS,
+    MAX_KNOWN_APPEARANCES, MAX_MEMORY_VALUE,
+};
+
+/// Bumped whenever a signature, struct layout, or field meaning changes.
+/// `RustBridge.h` mirrors this as `SkyrimRememberAbiVersion` and `BridgeSmoke`
+/// compares the two at run time.
+pub const ABI_VERSION: u32 = 7;
 const INITIALIZED_MESSAGE: &CStr = c"Rust bridge initialized";
 
 pub type SkyrimRememberLogCallback = unsafe extern "C" fn(message: *const c_char);
