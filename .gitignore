@@ -1,0 +1,9 @@
+/build/
+/rust/target/
+/vcpkg_installed/
+*.log
+*.obj
+*.pdb
+*.dll
+*.lib
+*.exp

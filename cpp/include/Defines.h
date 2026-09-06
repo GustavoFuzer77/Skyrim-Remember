@@ -1,0 +1,1 @@
+#define GuardFactionWhiterun 0x0002BE39
