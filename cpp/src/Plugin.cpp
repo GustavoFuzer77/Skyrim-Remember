@@ -48,7 +48,7 @@ SKSEPluginLoad(const SKSE::LoadInterface *skse) try {
   SKSE::Init(skse);
   SKSE::log::info("Skyrim Remember SKSE plugin loaded");
 
-  constexpr std::uint32_t expectedAbiVersion = 2;
+  constexpr std::uint32_t expectedAbiVersion = 3;
   const auto actualAbiVersion = skyrim_remember_abi_version();
 
   if (actualAbiVersion != expectedAbiVersion) {

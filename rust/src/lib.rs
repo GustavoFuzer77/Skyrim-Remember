@@ -2,12 +2,13 @@ use std::ffi::{c_char, CStr};
 
 mod bridge;
 mod memory;
+mod persistence;
 
 pub use bridge::*;
 
-pub use memory::{MemoryStore, NpcId, NpcMemory};
+pub use memory::{DecayHalfLives, MemoryStore, NpcId, NpcMemory};
 
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 const INITIALIZED_MESSAGE: &CStr = c"Rust bridge initialized";
 
 pub type SkyrimRememberLogCallback = unsafe extern "C" fn(message: *const c_char);

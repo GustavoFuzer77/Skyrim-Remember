@@ -14,7 +14,7 @@ unsafe extern "C" fn test_logger(message: *const c_char) {
 
 #[test]
 fn exposes_expected_abi_version() {
-    assert_eq!(skyrim_remember_abi_version(), 2);
+    assert_eq!(skyrim_remember_abi_version(), 3);
 }
 
 #[test]
@@ -46,6 +46,32 @@ fn store_creates_memory_with_zeroed_values() {
 
     assert_eq!(*memory, NpcMemory::default());
     assert_eq!(store.len(), 1);
+}
+
+#[test]
+fn fear_uses_a_seventy_two_hour_half_life() {
+    let mut memory = NpcMemory::new(100.0);
+    memory.fear = 80.0;
+
+    memory.apply_decay(103.0, DecayHalfLives::default());
+
+    assert!((memory.fear - 40.0).abs() < 0.0001);
+    assert_eq!(memory.last_decay_game_days, 103.0);
+}
+
+#[test]
+fn decay_ignores_time_rollback_and_deltas_are_clamped() {
+    let mut memory = NpcMemory::new(20.0);
+    memory.fear = 40.0;
+    memory.apply_decay(19.0, DecayHalfLives::default());
+    assert_eq!(memory.fear, 40.0);
+    assert_eq!(memory.last_decay_game_days, 20.0);
+
+    memory.add(200.0, -10.0, -100.0, 50.0);
+    assert_eq!(memory.recognition, 100.0);
+    assert_eq!(memory.suspicion, 0.0);
+    assert_eq!(memory.fear, 0.0);
+    assert_eq!(memory.respect, 50.0);
 }
 
 #[test]
