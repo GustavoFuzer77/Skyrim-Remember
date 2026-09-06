@@ -87,16 +87,26 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/Appearance.h
         cpp/include/Defines.h
         cpp/include/EquipmentBatch.h
-        cpp/include/GuardProbe.h
+        cpp/include/GuardMemoryAdapter.h
+        cpp/include/NpcObservation.h
+        cpp/include/NpcObservationService.h
+        cpp/include/NpcProfile.h
+        cpp/include/ObservationTuning.h
         cpp/include/Persistence.h
         cpp/include/PlayerAppearance.h
+        cpp/include/Runtime.h
         cpp/include/RustBridge.h
         cpp/src/Appearance.cpp
         cpp/src/EquipmentBatch.cpp
-        cpp/src/GuardProbe.cpp
+        cpp/src/GuardMemoryAdapter.cpp
+        cpp/src/NpcClassification.cpp
+        cpp/src/NpcObservation.cpp
+        cpp/src/NpcObservationService.cpp
+        cpp/src/NpcProfile.cpp
         cpp/src/Persistence.cpp
         cpp/src/Plugin.cpp
         cpp/src/PlayerAppearance.cpp
+        cpp/src/Runtime.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE cpp/include)
@@ -116,9 +126,13 @@ add_custom_target(rust_tests
 
 include(CTest)
 if(BUILD_TESTING)
-    # Appearance.cpp is deliberately free of Skyrim dependencies so that the
-    # outfit merge and the face rule can be tested without the game.
-    add_executable(BridgeSmoke cpp/tests/BridgeSmoke.cpp cpp/src/Appearance.cpp)
+    # These sources are deliberately free of Skyrim dependencies so that the
+    # outfit merge, the face rule and the profile policy can be tested without
+    # the game installed.
+    add_executable(BridgeSmoke
+        cpp/tests/BridgeSmoke.cpp
+        cpp/src/Appearance.cpp
+        cpp/src/NpcProfile.cpp)
     target_include_directories(BridgeSmoke PRIVATE cpp/include)
     target_link_libraries(BridgeSmoke PRIVATE skyrim_remember_rust)
     add_test(NAME bridge_smoke COMMAND BridgeSmoke)

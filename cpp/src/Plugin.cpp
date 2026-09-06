@@ -1,4 +1,4 @@
-#include "GuardProbe.h"
+#include "Runtime.h"
 #include "RustBridge.h"
 
 #include <SKSE/SKSE.h>
@@ -64,7 +64,7 @@ SKSEPluginLoad(const SKSE::LoadInterface *skse) try {
   SKSE::log::info("C++ -> Rust bridge initialized successfully");
   // Register callbacks last: after registration succeeds the plugin must stay
   // loaded.
-  return RegisterGuardProbe();
+  return SkyrimRemember::RegisterRuntime();
 } catch (...) {
   OutputDebugString("Skyrim Remember: plugin initialization failed\n");
   return false;

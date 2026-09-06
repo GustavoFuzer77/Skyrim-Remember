@@ -1,4 +1,5 @@
 #include "Appearance.h"
+#include "NpcProfile.h"
 #include "RustBridge.h"
 
 #include <array>
@@ -36,7 +37,9 @@ bool ResolveForm(void *, std::uint32_t oldFormID,
   } while (false)
 
 namespace {
+
 namespace BipedSlot = SkyrimRemember::BipedSlot;
+
 using SkyrimRemember::MergeWornPieces;
 using SkyrimRemember::WornPiece;
 
@@ -52,10 +55,10 @@ int main() {
   {
     const std::array pieces = {
         WornPiece{0x2000, handsSlot},
-        WornPiece{0, bodySlot},           // no Form: ignored entirely
-        WornPiece{0x1000, bodySlot},      // one Form worn in two slots
-        WornPiece{0x1000, 1U << 16},      //   ... merges into one item
-        WornPiece{0x3000, 0},             // no slots: ignored entirely
+        WornPiece{0, bodySlot},      // no Form: ignored entirely
+        WornPiece{0x1000, bodySlot}, // one Form worn in two slots
+        WornPiece{0x1000, 1U << 16}, //   ... merges into one item
+        WornPiece{0x3000, 0},        // no slots: ignored entirely
     };
 
     const auto merged = MergeWornPieces(pieces);
@@ -80,6 +83,63 @@ int main() {
     CHECK(MergeWornPieces(unreadable).faceVisible);
     CHECK(MergeWornPieces({}).faceVisible);
     CHECK(MergeWornPieces({}).items.empty());
+  }
+  {
+    // Technical decapitation slots never reach the visual signature.
+    const std::array technicalOnly = {
+        WornPiece{0x7000, SkyrimRemember::technicalSlots}};
+    CHECK(MergeWornPieces(technicalOnly).items.empty());
+
+    // A piece mixing visual and technical slots keeps only the visual bits.
+    const std::array mixed = {
+        WornPiece{0x8000, bodySlot | BipedSlot::DecapitateHead}};
+    const auto mergedMixed = MergeWornPieces(mixed);
+    CHECK(mergedMixed.items.size() == 1);
+    CHECK(mergedMixed.items[0].slotMask == bodySlot);
+
+    // A helmet that also carries kDecapitateHead still hides the face.
+    const std::array technicalHelmet = {
+        WornPiece{0x9000, BipedSlot::Head | BipedSlot::Decapitate}};
+    const auto mergedHelmet = MergeWornPieces(technicalHelmet);
+    CHECK(mergedHelmet.items.size() == 1);
+    CHECK(mergedHelmet.items[0].slotMask == BipedSlot::Head);
+    CHECK(!mergedHelmet.faceVisible);
+
+    // Bits 10 and 11 are tail and long hair, not technical slots.
+    constexpr std::uint32_t tailAndLongHair = (1U << 10) | (1U << 11);
+    const std::array tail = {WornPiece{0xA000, tailAndLongHair}};
+    const auto mergedTail = MergeWornPieces(tail);
+    CHECK(mergedTail.items.size() == 1);
+    CHECK(mergedTail.items[0].slotMask == tailAndLongHair);
+  }
+
+  // Profile policy: the half of classification that needs no game.
+  {
+    using SkyrimRemember::IsProfileEnabled;
+    using SkyrimRemember::NpcProfile;
+    using SkyrimRemember::npcProfileCount;
+    using SkyrimRemember::ProfileName;
+
+    // Only Guard takes part in observation at this stage.
+    CHECK(IsProfileEnabled(NpcProfile::Guard));
+    CHECK(!IsProfileEnabled(NpcProfile::Follower));
+    CHECK(!IsProfileEnabled(NpcProfile::Citizen));
+    CHECK(!IsProfileEnabled(NpcProfile::Merchant));
+    CHECK(!IsProfileEnabled(NpcProfile::Generic));
+
+    // Every profile is nameable and every enum value stays inside the range the
+    // metrics array is sized by.
+    constexpr NpcProfile every[] = {NpcProfile::Guard, NpcProfile::Follower,
+                                    NpcProfile::Citizen, NpcProfile::Merchant,
+                                    NpcProfile::Generic};
+    CHECK(std::size(every) == npcProfileCount);
+    for (const auto profile : every) {
+      CHECK(static_cast<std::size_t>(profile) < npcProfileCount);
+      CHECK(ProfileName(profile) != nullptr);
+      CHECK(std::strlen(ProfileName(profile)) > 0);
+    }
+    CHECK(std::strcmp(ProfileName(NpcProfile::Guard), "Guard") == 0);
+    CHECK(std::strcmp(ProfileName(NpcProfile::Merchant), "Merchant") == 0);
   }
 
   CHECK(skyrim_remember_initialize(Log));
