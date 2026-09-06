@@ -12,29 +12,39 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(CommonLibSSE CONFIG REQUIRED)
 
-# CommonLibSSE NG 3.7.0 in the colorglass registry contains a one-character
-# typo that MSVC accepts until template instantiation, while clang-cl correctly
-# rejects it. The maintained upstream has already fixed it. Patch only the
-# build-local vcpkg copy and fail naturally if any unrelated error remains.
+# CommonLibSSE NG 3.7.0 in the colorglass registry ships source that MSVC
+# accepts until template instantiation while clang-cl correctly rejects it.
+# The maintained upstream has already fixed each of these. Patch only the
+# build-local vcpkg copy, and fail naturally if any unrelated error remains.
+#
+# Each call rewrites one exact string in one header, and is a no-op once the
+# header no longer contains it, so re-running CMake and upgrading the port are
+# both safe. Add a call here rather than another copy of this block.
 find_path(COMMONLIBSSE_INCLUDE_DIR "RE/B/BSTPointerAndFlags.h" REQUIRED)
-set(COMMONLIBSSE_POINTER_FLAGS_HEADER
-    "${COMMONLIBSSE_INCLUDE_DIR}/RE/B/BSTPointerAndFlags.h")
-file(READ "${COMMONLIBSSE_POINTER_FLAGS_HEADER}" COMMONLIBSSE_POINTER_FLAGS_CONTENT)
-string(FIND
-    "${COMMONLIBSSE_POINTER_FLAGS_CONTENT}"
+
+function(patch_commonlibsse_header RELATIVE_HEADER FROM TO DESCRIPTION)
+    set(HEADER "${COMMONLIBSSE_INCLUDE_DIR}/${RELATIVE_HEADER}")
+    file(READ "${HEADER}" CONTENT)
+    string(FIND "${CONTENT}" "${FROM}" TYPO_POSITION)
+    if(NOT TYPO_POSITION EQUAL -1)
+        string(REPLACE "${FROM}" "${TO}" CONTENT "${CONTENT}")
+        file(WRITE "${HEADER}" "${CONTENT}")
+        message(STATUS "Applied the CommonLibSSE NG ${DESCRIPTION} clang-cl fix")
+    endif()
+endfunction()
+
+# A one-character typo: the member is named _storage.
+patch_commonlibsse_header("RE/B/BSTPointerAndFlags.h"
     "a_rhs.storage.address = 0;"
-    COMMONLIBSSE_CLANG_TYPO_POSITION)
-if(NOT COMMONLIBSSE_CLANG_TYPO_POSITION EQUAL -1)
-    string(REPLACE
-        "a_rhs.storage.address = 0;"
-        "a_rhs._storage.address = 0;"
-        COMMONLIBSSE_POINTER_FLAGS_CONTENT
-        "${COMMONLIBSSE_POINTER_FLAGS_CONTENT}")
-    file(WRITE
-        "${COMMONLIBSSE_POINTER_FLAGS_HEADER}"
-        "${COMMONLIBSSE_POINTER_FLAGS_CONTENT}")
-    message(STATUS "Applied the CommonLibSSE NG 3.7.0 clang-cl compatibility fix")
-endif()
+    "a_rhs._storage.address = 0;"
+    "BSTPointerAndFlags")
+
+# Stale Scaleform container method casing, hit when UI event headers are
+# instantiated.
+patch_commonlibsse_header("RE/G/GHashSetBase.h"
+    "a_src.Begin(); it != a_src.End();"
+    "a_src.begin(); it != a_src.end();"
+    "Scaleform")
 
 set(RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.toml")
 set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
@@ -75,6 +85,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
     SOURCES
         cpp/include/RustBridge.h
+        cpp/include/Defines.h
         cpp/src/Plugin.cpp
         cpp/src/GuardProbe.cpp
         cpp/include/GuardProbe.h
