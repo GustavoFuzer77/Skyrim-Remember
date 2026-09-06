@@ -109,6 +109,29 @@ impl AppearanceWeights {
     }
 }
 
+/// How an observation that carries nothing new is allowed to touch memory.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ObservationTuning {
+    /// Minimum game time between two refreshes of the same known outfit.
+    ///
+    /// The host polls: a guard standing next to the Player observes the same
+    /// unchanged outfit over and over. Without this floor, that outfit's
+    /// `last_seen_game_days` would be rewritten on every tick, it would never
+    /// be the eviction candidate, and freshness would measure how long the
+    /// scan ran rather than when the NPC last saw something. Refreshing is an
+    /// explicit rule here, not a side effect of how often the host asks.
+    pub refresh_interval_game_days: f64,
+}
+
+impl Default for ObservationTuning {
+    fn default() -> Self {
+        Self {
+            // One game hour.
+            refresh_interval_game_days: 1.0 / 24.0,
+        }
+    }
+}
+
 /// Storage bounds enforced by the store itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -132,6 +155,7 @@ pub struct Tuning {
     pub recognition: RecognitionTuning,
     pub weights: AppearanceWeights,
     pub limits: Limits,
+    pub observation: ObservationTuning,
 }
 
 #[cfg(test)]

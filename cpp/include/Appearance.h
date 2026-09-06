@@ -13,12 +13,24 @@
 // CommonLibSSE's own enum.
 namespace SkyrimRemember {
 
-// Mirrors RE::BGSBipedObjectForm::BipedObjectSlot.
+// Mirrors RE::BGSBipedObjectForm::BipedObjectSlot. These are bit indices, not
+// Creation Kit slot numbers: bit 20 is CK slot 50. PlayerAppearance.cpp holds
+// every constant here against the CommonLibSSE enum with static_asserts.
 namespace BipedSlot {
-inline constexpr std::uint32_t Head = 1U << 0;
-inline constexpr std::uint32_t Hair = 1U << 1;
-inline constexpr std::uint32_t Circlet = 1U << 12;
+inline constexpr std::uint32_t Head = 1U << 0;           // kHead
+inline constexpr std::uint32_t Hair = 1U << 1;           // kHair
+inline constexpr std::uint32_t Circlet = 1U << 12;       // kCirclet
+inline constexpr std::uint32_t DecapitateHead = 1U << 20; // kDecapitateHead
+inline constexpr std::uint32_t Decapitate = 1U << 21;     // kDecapitate
 } // namespace BipedSlot
+
+// Bits that carry no visual meaning: the game uses them for decapitation
+// geometry, never for something an onlooker could describe. Note that bits 10
+// and 11 (kTail, kLongHair) are NOT technical and do take part in appearance.
+inline constexpr std::uint32_t technicalSlots =
+    BipedSlot::DecapitateHead | BipedSlot::Decapitate;
+
+static_assert(technicalSlots == 0x00300000U);
 
 // A piece hides the face when it takes the head slot outright, or when it
 // occupies hair and circlet together the way full helmets do.
@@ -47,9 +59,13 @@ struct CapturedAppearance {
   bool operator==(const CapturedAppearance &) const = default;
 };
 
-// Drops pieces the game could not describe, merges the slots of one Form worn
-// in several slots, sorts by FormID so equal outfits compare equal, and reports
-// whether anything hides the face.
+// Strips the technical slots from every piece, drops pieces the game could not
+// describe or that had nothing but technical bits, merges the slots of one Form
+// worn in several slots, sorts by FormID so equal outfits compare equal, and
+// reports whether anything hides the face.
+//
+// A piece that mixes visual and technical slots keeps its visual bits; only the
+// technical ones are cleared.
 CapturedAppearance MergeWornPieces(std::span<const WornPiece> pieces);
 
 } // namespace SkyrimRemember

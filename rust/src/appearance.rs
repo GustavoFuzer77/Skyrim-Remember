@@ -17,6 +17,15 @@ const SHIELD_SLOTS: u32 = 1 << 9;
 const ACCESSORY_SLOTS: u32 =
     (1 << 5) | (1 << 6) | (1 << 10) | (1 << 11) | (1 << 15) | (1 << 18) | (1 << 30) | (1 << 31);
 
+/// Biped slots that carry no visual meaning: bit 20 (`kDecapitateHead`) and
+/// bit 21 (`kDecapitate`), which the game uses for decapitation geometry.
+///
+/// They are stripped from every item, on capture and on load, so that an outfit
+/// saved before this rule still compares equal to the same outfit captured
+/// today. A piece is dropped only when nothing but technical bits remains;
+/// a piece that mixes visual and technical slots keeps its visual bits.
+pub const TECHNICAL_SLOTS: u32 = (1 << 20) | (1 << 21);
+
 /// A group of biped slots that reads as one visual feature at a distance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppearanceCategory {
@@ -91,6 +100,7 @@ impl MemoryStore {
             self.evaluate_normalized_appearance(npc_id, &items, face_visible, visual_continuity)?;
         let capacity = self.tuning.limits.max_known_appearances;
         let weights = self.tuning.weights;
+        let refresh_interval = self.tuning.observation.refresh_interval_game_days;
         let known = self.appearances.entry(npc_id).or_default();
         if known.is_empty() {
             known.push(KnownAppearance {
@@ -124,8 +134,14 @@ impl MemoryStore {
         let mut learned = false;
         if observation.recognized {
             if let Some(index) = exact_index {
-                known[index].last_seen_game_days = game_days;
-                known[index].identity_known = true;
+                // Seeing a known outfit again is not news. Only move the
+                // freshness stamp once the refresh interval has really passed,
+                // so repeated polling of an unchanged Player is idempotent.
+                let previous = &mut known[index];
+                if game_days - previous.last_seen_game_days >= refresh_interval {
+                    previous.last_seen_game_days = game_days;
+                }
+                previous.identity_known = true;
             } else {
                 if known.len() >= capacity {
                     let oldest = known
@@ -220,10 +236,14 @@ pub fn appearance_is_valid(appearance: &KnownAppearance, max_items: usize) -> bo
         && appearance.last_seen_game_days >= 0.0
 }
 
-/// Drops empty entries, sorts by FormID, and merges the slots of one Form worn
-/// in several slots, so that two equal outfits compare bit-for-bit equal.
+/// Strips technical slots, drops empty entries, sorts by FormID, and merges the
+/// slots of one Form worn in several slots, so that two equal outfits compare
+/// bit-for-bit equal.
 pub(crate) fn normalize_items(items: &mut Vec<AppearanceItem>) {
-    items.retain(|item| item.form_id != 0 && item.slot_mask != 0);
+    items.retain_mut(|item| {
+        item.slot_mask &= !TECHNICAL_SLOTS;
+        item.form_id != 0 && item.slot_mask != 0
+    });
     items.sort_unstable_by_key(|item| item.form_id);
     let mut normalized: Vec<AppearanceItem> = Vec::with_capacity(items.len());
     for item in items.drain(..) {

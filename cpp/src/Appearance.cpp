@@ -8,19 +8,22 @@ CapturedAppearance MergeWornPieces(std::span<const WornPiece> pieces) {
   CapturedAppearance captured;
   captured.items.reserve(pieces.size());
   for (const auto &piece : pieces) {
-    // A Form the game cannot describe says nothing about the face either.
-    if (piece.formId == 0 || piece.slotMask == 0) {
+    // Keep the visual bits, discard the technical ones. A piece left with
+    // nothing visual is not part of the signature at all — and a Form the game
+    // cannot describe says nothing about the face either.
+    const auto visualMask = piece.slotMask & ~technicalSlots;
+    if (piece.formId == 0 || visualMask == 0) {
       continue;
     }
-    captured.faceVisible = captured.faceVisible && !CoversFace(piece.slotMask);
-    const auto existing =
-        std::ranges::find_if(captured.items, [&piece](const AppearanceItem &item) {
+    captured.faceVisible = captured.faceVisible && !CoversFace(visualMask);
+    const auto existing = std::ranges::find_if(
+        captured.items, [&piece](const AppearanceItem &item) {
           return item.formId == piece.formId;
         });
     if (existing != captured.items.end()) {
-      existing->slotMask |= piece.slotMask;
+      existing->slotMask |= visualMask;
     } else {
-      captured.items.push_back({piece.formId, piece.slotMask});
+      captured.items.push_back({piece.formId, visualMask});
     }
   }
   std::ranges::sort(captured.items, {}, &AppearanceItem::formId);

@@ -21,6 +21,17 @@ static_assert(BipedSlot::Hair ==
               SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kHair));
 static_assert(BipedSlot::Circlet ==
               SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kCirclet));
+static_assert(BipedSlot::DecapitateHead ==
+              SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kDecapitateHead));
+static_assert(BipedSlot::Decapitate ==
+              SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kDecapitate));
+
+// Bits 10 and 11 are real appearance, not technical: guarding against a future
+// edit that lumps them in with the decapitation slots.
+static_assert((technicalSlots &
+               SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kTail)) == 0);
+static_assert((technicalSlots &
+               SlotBit(RE::BGSBipedObjectForm::BipedObjectSlot::kLongHair)) == 0);
 
 constexpr std::uint32_t bipedSlotCount = 32;
 } // namespace

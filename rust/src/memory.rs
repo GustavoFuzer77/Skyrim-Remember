@@ -4,7 +4,7 @@
 //! that feeds them lives in [`crate::appearance`], and every number both of
 //! them read lives in [`crate::tuning`].
 
-use crate::appearance::KnownAppearance;
+use crate::appearance::{normalize_items, KnownAppearance};
 use crate::tuning::{DecayHalfLives, Tuning, MAX_MEMORY_VALUE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -182,13 +182,21 @@ impl MemoryStore {
             .unwrap_or(&[])
     }
 
+    /// Inserts a restored entry, normalizing its outfits on the way in.
+    ///
+    /// Normalizing here rather than trusting the caller is what lets an outfit
+    /// saved under older rules — technical slots included, slots unmerged —
+    /// compare equal to the same outfit captured today.
     pub fn restore_entry(
         &mut self,
         npc_id: NpcId,
         memory: NpcMemory,
-        appearances: Vec<KnownAppearance>,
+        mut appearances: Vec<KnownAppearance>,
     ) {
         self.memories.insert(npc_id, memory);
+        for appearance in &mut appearances {
+            normalize_items(&mut appearance.items);
+        }
         if !appearances.is_empty() {
             self.appearances.insert(npc_id, appearances);
         }

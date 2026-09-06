@@ -316,3 +316,146 @@ fn an_observation_over_the_item_limit_is_rejected() {
         .evaluate_appearance(guard, too_many, true, false)
         .is_none());
 }
+
+#[test]
+fn technical_decapitation_slots_leave_the_visual_signature() {
+    let mut items = vec![
+        // Only technical bits: the piece carries no visual information.
+        appearance_item(10, TECHNICAL_SLOTS),
+        // Mixed: the body bit survives, the technical bits do not.
+        appearance_item(20, (1 << 2) | (1 << 20)),
+        // Untouched.
+        appearance_item(30, 1 << 10),
+    ];
+
+    normalize_items(&mut items);
+
+    assert_eq!(
+        items,
+        vec![appearance_item(20, 1 << 2), appearance_item(30, 1 << 10)]
+    );
+}
+
+#[test]
+fn tail_and_long_hair_are_not_technical_slots() {
+    let mut items = vec![appearance_item(10, (1 << 10) | (1 << 11))];
+
+    normalize_items(&mut items);
+
+    assert_eq!(items, vec![appearance_item(10, (1 << 10) | (1 << 11))]);
+}
+
+#[test]
+fn an_outfit_saved_with_technical_bits_still_matches_a_fresh_capture() {
+    let mut store = MemoryStore::new();
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+    // Restored the way an older save would have written it.
+    store.restore_entry(
+        guard,
+        NpcMemory::new(1.0),
+        vec![KnownAppearance {
+            items: vec![appearance_item(10, (1 << 2) | (1 << 20))],
+            face_visible: true,
+            identity_known: true,
+            last_seen_game_days: 1.0,
+        }],
+    );
+
+    let seen_again = store
+        .observe_appearance(guard, vec![appearance_item(10, 1 << 2)], true, false, 1.5)
+        .unwrap();
+
+    assert_eq!(seen_again.outfit_similarity, 1.0);
+    assert!(seen_again.appearance_matched);
+    assert!(!seen_again.learned, "the same outfit must not be relearned");
+    assert_eq!(store.known_appearances(guard).len(), 1);
+}
+
+#[test]
+fn repeated_identical_observation_does_not_keep_refreshing_the_outfit() {
+    let mut store = MemoryStore::new();
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+    let outfit = vec![appearance_item(10, 1 << 2)];
+    store
+        .observe_appearance(guard, outfit.clone(), true, false, 1.0)
+        .unwrap();
+
+    // A whole burst of polling inside one game hour changes nothing.
+    for tick in 1..=20 {
+        let result = store
+            .observe_appearance(
+                guard,
+                outfit.clone(),
+                true,
+                false,
+                1.0 + f64::from(tick) * 0.0005,
+            )
+            .unwrap();
+        assert!(!result.learned);
+    }
+
+    assert_eq!(store.known_appearances(guard).len(), 1);
+    assert_eq!(store.known_appearances(guard)[0].last_seen_game_days, 1.0);
+}
+
+#[test]
+fn an_outfit_is_refreshed_once_the_interval_has_really_passed() {
+    let mut store = MemoryStore::new();
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+    let outfit = vec![appearance_item(10, 1 << 2)];
+    store
+        .observe_appearance(guard, outfit.clone(), true, false, 1.0)
+        .unwrap();
+
+    store
+        .observe_appearance(guard, outfit, true, false, 1.5)
+        .unwrap();
+
+    assert_eq!(store.known_appearances(guard)[0].last_seen_game_days, 1.5);
+}
+
+#[test]
+fn polling_never_makes_the_newest_outfit_immune_to_eviction() {
+    let tuning = Tuning {
+        limits: Limits {
+            max_known_appearances: 2,
+            ..Limits::default()
+        },
+        ..Tuning::default()
+    };
+    let mut store = MemoryStore::with_tuning(tuning);
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+
+    store
+        .observe_appearance(guard, vec![appearance_item(10, 1 << 2)], true, false, 1.0)
+        .unwrap();
+    store
+        .observe_appearance(guard, vec![appearance_item(20, 1 << 2)], true, false, 2.0)
+        .unwrap();
+    // The Player stands still in outfit 10 while the scan polls repeatedly.
+    for tick in 0..50 {
+        store
+            .observe_appearance(
+                guard,
+                vec![appearance_item(10, 1 << 2)],
+                true,
+                false,
+                2.0 + f64::from(tick) * 0.0005,
+            )
+            .unwrap();
+    }
+    store
+        .observe_appearance(guard, vec![appearance_item(30, 1 << 2)], true, false, 3.0)
+        .unwrap();
+
+    let known = store.known_appearances(guard);
+    assert_eq!(known.len(), 2);
+    assert!(
+        known.iter().all(|entry| entry.items[0].form_id != 10),
+        "the oldest outfit must still be the one evicted"
+    );
+}

@@ -10,14 +10,14 @@ pub use bridge::*;
 
 pub use appearance::{
     appearance_is_valid, outfit_similarity, AppearanceCategory, AppearanceItem,
-    AppearanceObservation, KnownAppearance,
+    AppearanceObservation, KnownAppearance, TECHNICAL_SLOTS,
 };
 
 pub use memory::{MemoryStore, NpcId, NpcMemory};
 
 pub use tuning::{
-    AppearanceWeights, DecayHalfLives, Limits, RecognitionTuning, Tuning, MAX_APPEARANCE_ITEMS,
-    MAX_KNOWN_APPEARANCES, MAX_MEMORY_VALUE,
+    AppearanceWeights, DecayHalfLives, Limits, ObservationTuning, RecognitionTuning, Tuning,
+    MAX_APPEARANCE_ITEMS, MAX_KNOWN_APPEARANCES, MAX_MEMORY_VALUE,
 };
 
 /// Bumped whenever a signature, struct layout, or field meaning changes.
