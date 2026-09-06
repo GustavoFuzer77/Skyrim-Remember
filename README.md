@@ -137,8 +137,6 @@ questline can do this too. The plugin errs on the side of caution: an NPC that
 stops matching simply stops being watched, and the memory he already had is
 left alone rather than handed to someone else.
 
-Nemesis and animation frameworks are unrelated to this plugin.
-
 ## Building from source
 
 You will need CMake 3.25+, Ninja, LLVM (`clang-cl`), the MSVC build tools, a
