@@ -1,30 +1,53 @@
 #include "GuardProbe.h"
+#include "Appearance.h"
 #include "Defines.h"
+#include "EquipmentBatch.h"
+#include "Persistence.h"
+#include "PlayerAppearance.h"
 #include "RustBridge.h"
 
 #include <RE/A/Actor.h>
 #include <RE/C/Calendar.h>
+#include <RE/M/MenuOpenCloseEvent.h>
 #include <RE/P/PlayerCharacter.h>
+#include <RE/P/ProcessLists.h>
+#include <RE/S/ScriptEventSourceHolder.h>
 #include <RE/T/TESDataHandler.h>
+#include <RE/T/TESEquipEvent.h>
 #include <RE/T/TESFaction.h>
+#include <RE/U/UI.h>
 #include <SKSE/SKSE.h>
 
-namespace {
-// Verified in the local Skyrim.esm FACT/EDID records: GuardFactionWhiterun.
-constexpr RE::FormID whiterunGuardFactionID = GuardFactionWhiterun;
+#include <cstdint>
+#include <optional>
 
-consteval std::uint32_t MakeTag(char a, char b, char c, char d) {
-  return static_cast<std::uint32_t>(a) | (static_cast<std::uint32_t>(b) << 8U) |
-         (static_cast<std::uint32_t>(c) << 16U) |
-         (static_cast<std::uint32_t>(d) << 24U);
+namespace {
+using SkyrimRemember::CapturedAppearance;
+using SkyrimRemember::CapturePlayerAppearance;
+using SkyrimRemember::EquipmentBatch;
+namespace Persistence = SkyrimRemember::Persistence;
+
+// Verified in the local Skyrim.esm FACT/EDID records: GuardFactionWhiterun.
+constexpr RE::FormID whiterunGuardFactionID =
+    SkyrimRemember::Forms::WhiterunGuardFactionLocalID;
+
+constexpr float maximumObservationDistance = 4096.0F;
+
+void LogAppearance(RE::FormID observer, const AppearanceResult &result) {
+  SKSE::log::info(
+      "Appearance: observer={:08X} appearanceMatched={} recognized={} "
+      "linked={} learned={} faceVisible={} "
+      "outfitSimilarity={} confidence={} threshold={} items={} known={}",
+      observer, result.appearanceMatched != 0, result.recognized != 0,
+      result.linkedByContinuity != 0, result.learned != 0,
+      result.faceVisible != 0, result.outfitSimilarity,
+      result.identityConfidence, result.recognitionThreshold, result.itemCount,
+      result.knownAppearances);
 }
 
-constexpr std::uint32_t serializationID = MakeTag('S', 'R', 'M', 'R');
-constexpr std::uint32_t memoryRecordType = MakeTag('M', 'E', 'M', 'R');
-constexpr std::uint32_t memoryRecordVersion = 1;
-constexpr std::uint32_t maximumRecordBytes = 16U * 1024U * 1024U;
-
-class GuardProbe final : public RE::BSTEventSink<SKSE::CrosshairRefEvent> {
+class GuardProbe final : public RE::BSTEventSink<SKSE::CrosshairRefEvent>,
+                         public RE::BSTEventSink<RE::TESEquipEvent>,
+                         public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
 public:
   static GuardProbe &Get() {
     static GuardProbe instance;
@@ -35,14 +58,23 @@ public:
     engine.reset(skyrim_remember_create());
     const auto messaging = SKSE::GetMessagingInterface();
     const auto serialization = SKSE::GetSerializationInterface();
-    if (!engine || !messaging || !serialization) {
+    const auto tasks = SKSE::GetTaskInterface();
+    if (!engine || !messaging || !serialization || !tasks) {
       return false;
     }
-    serialization->SetUniqueID(serializationID);
+    if (!messaging->RegisterListener(OnMessage)) {
+      return false;
+    }
+    // The probe is a function-local static, so it outlives every task it
+    // schedules through the batch.
+    equipment.Configure(tasks, [this](std::uint64_t batchedEvents) {
+      HandleEquipmentUpdate(batchedEvents);
+    });
+    serialization->SetUniqueID(Persistence::SerializationID);
     serialization->SetSaveCallback(OnSave);
     serialization->SetLoadCallback(OnLoad);
     serialization->SetRevertCallback(OnRevert);
-    return messaging->RegisterListener(OnMessage);
+    return true;
   }
 
   RE::BSEventNotifyControl
@@ -51,26 +83,79 @@ public:
     try {
       Inspect(event);
     } catch (...) {
-      playing = false;
-      OutputDebugString(
-          "Skyrim Remember: guard probe disabled after an exception\n");
+      Disable("Guard probe disabled after an exception");
+    }
+    return RE::BSEventNotifyControl::kContinue;
+  }
+
+  RE::BSEventNotifyControl
+  ProcessEvent(const RE::TESEquipEvent *event,
+               RE::BSTEventSource<RE::TESEquipEvent> *) override {
+    try {
+      QueueEquipmentUpdate(event);
+    } catch (...) {
+      SKSE::log::error("Equipment event failed with an exception");
+    }
+    return RE::BSEventNotifyControl::kContinue;
+  }
+
+  RE::BSEventNotifyControl
+  ProcessEvent(const RE::MenuOpenCloseEvent *event,
+               RE::BSTEventSource<RE::MenuOpenCloseEvent> *) override {
+    try {
+      if (event && !event->opening) {
+        equipment.MenuClosed();
+      }
+    } catch (...) {
+      SKSE::log::error("Menu event failed with an exception");
     }
     return RE::BSEventNotifyControl::kContinue;
   }
 
 private:
+  // SKSE messages, game events, and queued tasks access the gameplay fields
+  // below only on Skyrim's main thread.
   using EnginePtr =
       std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>;
   EnginePtr engine{nullptr, skyrim_remember_destroy};
+  EquipmentBatch equipment;
   RE::TESFaction *faction = nullptr;
   RE::FormID lastReference = 0;
+  std::optional<CapturedAppearance> lastPlayerAppearance;
   bool attached = false;
+  bool equipmentAttached = false;
+  bool menuAttached = false;
   bool playing = false;
   bool sessionReady = false;
 
+  // One appearance question for the Rust core. `learn` chooses between the
+  // pure query and the observation that also updates the NPC's memory, so the
+  // difference is visible at every call site.
+  struct AppearanceQuery {
+    RE::FormID observer = 0;
+    const CapturedAppearance *appearance = nullptr;
+    bool visualContinuity = false;
+    bool learn = false;
+    double gameDays = 0.0;
+  };
+
+  static void Disable(const char *reason) {
+    Get().playing = false;
+    try {
+      SKSE::log::critical("{}", reason);
+    } catch (...) {
+      OutputDebugString("Skyrim Remember: guard probe disabled\n");
+    }
+  }
+
   static void OnSave(SKSE::SerializationInterface *serialization) noexcept {
     try {
-      Get().Save(serialization);
+      auto &probe = Get();
+      if (!probe.sessionReady || !probe.playing) {
+        SKSE::log::error("Persistence save skipped: no gameplay session");
+        return;
+      }
+      Persistence::Save(probe.engine.get(), serialization);
     } catch (...) {
       SKSE::log::error("Persistence save callback failed with an exception");
     }
@@ -86,24 +171,10 @@ private:
 
   static void OnRevert(SKSE::SerializationInterface *) noexcept {
     try {
-      Get().Reset("serialization-revert");
+      Get().PrepareForLoad("serialization-revert");
     } catch (...) {
       SKSE::log::error("Persistence revert callback failed with an exception");
     }
-  }
-
-  static bool ResolveFormID(void *context, std::uint32_t oldFormID,
-                            std::uint32_t *newFormID) noexcept {
-    if (!context || !newFormID) {
-      return false;
-    }
-    auto *serialization = static_cast<SKSE::SerializationInterface *>(context);
-    RE::FormID resolved = 0;
-    if (!serialization->ResolveFormID(oldFormID, resolved)) {
-      return false;
-    }
-    *newFormID = resolved;
-    return true;
   }
 
   static void OnMessage(SKSE::MessagingInterface::Message *message) {
@@ -113,8 +184,7 @@ private:
     try {
       Get().HandleMessage(*message);
     } catch (...) {
-      Get().playing = false;
-      OutputDebugString("Skyrim Remember: lifecycle callback failed\n");
+      Disable("Lifecycle callback failed; guard probe disabled");
     }
   }
 
@@ -126,30 +196,50 @@ private:
                                                         "Skyrim.esm")
                      : nullptr;
       auto *events = SKSE::GetCrosshairRefEventSource();
-      if (!faction || !events) {
+      auto *scriptEvents = RE::ScriptEventSourceHolder::GetSingleton();
+      if (!faction || !events || !scriptEvents) {
         SKSE::log::error("Guard probe disabled: missing Whiterun faction or "
-                         "crosshair source");
+                         "event source");
         return;
       }
       if (!attached) {
         events->AddEventSink(this);
         attached = true;
       }
+      if (!equipmentAttached) {
+        scriptEvents->GetEventSource<RE::TESEquipEvent>()->AddEventSink(this);
+        equipmentAttached = true;
+      }
+      auto *ui = RE::UI::GetSingleton();
+      if (!ui) {
+        SKSE::log::error("Equipment batching disabled: UI unavailable");
+        return;
+      }
+      if (!menuAttached) {
+        ui->AddEventSink<RE::MenuOpenCloseEvent>(this);
+        menuAttached = true;
+      }
       SKSE::log::info("Guard probe ready: GuardFactionWhiterun={:08X}",
                       faction->GetFormID());
       break;
     }
     case SKSE::MessagingInterface::kPreLoadGame:
-      Reset("pre-load");
+      PrepareForLoad("pre-load");
       break;
     case SKSE::MessagingInterface::kNewGame:
       Reset("new-game");
       playing = sessionReady;
+      if (playing) {
+        lastPlayerAppearance = CapturePlayerAppearance();
+      }
       break;
     case SKSE::MessagingInterface::kPostLoadGame:
       // SKSE encodes the load success bool in data itself, not a bool*.
       playing = sessionReady && message.data != nullptr;
       lastReference = 0;
+      if (playing) {
+        lastPlayerAppearance = CapturePlayerAppearance();
+      }
       break;
     default:
       break;
@@ -157,106 +247,183 @@ private:
   }
 
   void Reset(const char *reason) {
-    playing = false;
-    lastReference = 0;
+    PrepareForLoad(reason);
     const auto status = skyrim_remember_clear(engine.get());
     sessionReady = status == BridgeStatus::Ok;
     SKSE::log::info("Memory reset: reason={} status={}", reason,
                     static_cast<std::uint32_t>(status));
   }
 
-  void Save(SKSE::SerializationInterface *serialization) {
-    if (!serialization || !engine) {
-      SKSE::log::error("Persistence save skipped: unavailable interface");
-      return;
-    }
-    std::size_t bytesRequired = 0;
-    auto status =
-        skyrim_remember_serialize(engine.get(), nullptr, 0, &bytesRequired);
-    if (status != BridgeStatus::Ok || bytesRequired == 0 ||
-        bytesRequired > maximumRecordBytes) {
-      SKSE::log::error("Persistence size query failed: status={} bytes={}",
-                       static_cast<std::uint32_t>(status), bytesRequired);
-      return;
-    }
-    std::vector<std::uint8_t> bytes(bytesRequired);
-    std::size_t bytesWritten = 0;
-    status = skyrim_remember_serialize(engine.get(), bytes.data(), bytes.size(),
-                                       &bytesWritten);
-    if (status != BridgeStatus::Ok || bytesWritten != bytes.size()) {
-      SKSE::log::error(
-          "Persistence serialization failed: status={} bytes={}/{}",
-          static_cast<std::uint32_t>(status), bytesWritten, bytes.size());
-      return;
-    }
-    if (!serialization->WriteRecord(memoryRecordType, memoryRecordVersion,
-                                    bytes.data(),
-                                    static_cast<std::uint32_t>(bytes.size()))) {
-      SKSE::log::error("Persistence record write failed");
-      return;
-    }
-    SKSE::log::info("Memory saved: bytes={}", bytes.size());
+  void PrepareForLoad(const char *reason) {
+    playing = false;
+    sessionReady = false;
+    lastReference = 0;
+    lastPlayerAppearance.reset();
+    equipment.Reset();
+    SKSE::log::info("Memory load preparation: reason={}", reason);
   }
 
   void Load(SKSE::SerializationInterface *serialization) {
-    if (!serialization || !engine) {
-      SKSE::log::error("Persistence load skipped: unavailable interface");
-      return;
-    }
-    const auto cleared = skyrim_remember_clear(engine.get());
-    if (cleared != BridgeStatus::Ok) {
-      SKSE::log::error("Persistence load could not clear memory: status={}",
-                       static_cast<std::uint32_t>(cleared));
-      return;
-    }
-
-    std::uint32_t type = 0;
-    std::uint32_t version = 0;
-    std::uint32_t length = 0;
-    bool found = false;
-    while (serialization->GetNextRecordInfo(type, version, length)) {
-      if (type != memoryRecordType) {
-        SKSE::log::warn("Ignoring unknown persistence record: type={:08X}",
-                        type);
-        continue;
-      }
-      found = true;
-      if (version != memoryRecordVersion || length == 0 ||
-          length > maximumRecordBytes) {
-        SKSE::log::error("Persistence record rejected: version={} bytes={}",
-                         version, length);
-        continue;
-      }
-      std::vector<std::uint8_t> bytes(length);
-      const auto read = serialization->ReadRecordData(bytes.data(), length);
-      if (read != length) {
-        SKSE::log::error("Persistence record truncated: bytes={}/{}", read,
-                         length);
-        continue;
-      }
-      PersistenceStats stats{};
-      const auto status =
-          skyrim_remember_deserialize(engine.get(), bytes.data(), bytes.size(),
-                                      ResolveFormID, serialization, &stats);
-      if (status != BridgeStatus::Ok) {
-        SKSE::log::error("Memory restore failed: status={}",
-                         static_cast<std::uint32_t>(status));
-        continue;
-      }
-      SKSE::log::info("Memory restored: loaded={} unresolved={} bytes={}",
-                      stats.loaded, stats.unresolved, bytes.size());
-    }
-    if (!found) {
-      SKSE::log::info("No Skyrim Remember data found in this save");
-    }
+    sessionReady = false;
+    const auto outcome = Persistence::Load(engine.get(), serialization);
+    sessionReady = outcome == Persistence::LoadOutcome::Restored ||
+                   outcome == Persistence::LoadOutcome::NoData;
   }
 
-  static double CurrentGameDays() {
+  static std::optional<double> CurrentGameDays() {
     const auto *calendar = RE::Calendar::GetSingleton();
-    const auto gameDays = calendar ? calendar->GetDaysPassed() : 0.0F;
-    return std::isfinite(gameDays) && gameDays >= 0.0F
-               ? static_cast<double>(gameDays)
-               : 0.0;
+    if (!calendar) {
+      SKSE::log::error("Game time unavailable: Calendar singleton missing");
+      return std::nullopt;
+    }
+    const auto gameDays = calendar->GetDaysPassed();
+    if (!std::isfinite(gameDays) || gameDays < 0.0F) {
+      SKSE::log::error("Game time unavailable: invalid GameDaysPassed={}",
+                       gameDays);
+      return std::nullopt;
+    }
+    return static_cast<double>(gameDays);
+  }
+
+  bool IsEligibleGuard(RE::Actor &actor) const {
+    return &actor != RE::PlayerCharacter::GetSingleton() && !actor.IsDead() &&
+           actor.IsGuard() && actor.IsInFaction(faction);
+  }
+
+  static bool IsInObservationRange(RE::Actor &actor,
+                                   RE::PlayerCharacter &player) {
+    const auto *actorWorld = actor.GetWorldspace();
+    const auto *playerWorld = player.GetWorldspace();
+    if (actorWorld != playerWorld) {
+      return false;
+    }
+    if (!actorWorld && actor.GetParentCell() != player.GetParentCell()) {
+      return false;
+    }
+    const auto distance = actor.GetPosition().GetDistance(player.GetPosition());
+    return std::isfinite(distance) && distance <= maximumObservationDistance;
+  }
+
+  BridgeStatus QueryAppearance(const AppearanceQuery &query,
+                               AppearanceResult &result) const {
+    const auto &items = query.appearance->items;
+    const auto *data = items.empty() ? nullptr : items.data();
+    const auto faceVisible = query.appearance->faceVisible ? 1U : 0U;
+    const auto continuity = query.visualContinuity ? 1U : 0U;
+    if (query.learn) {
+      return skyrim_remember_observe_appearance(engine.get(), query.observer,
+                                                query.gameDays, data,
+                                                items.size(), faceVisible,
+                                                continuity, &result);
+    }
+    return skyrim_remember_evaluate_appearance(engine.get(), query.observer,
+                                               data, items.size(), faceVisible,
+                                               continuity, &result);
+  }
+
+  void QueueEquipmentUpdate(const RE::TESEquipEvent *event) {
+    auto *player = RE::PlayerCharacter::GetSingleton();
+    if (!event || !player || event->actor.get() != player || !playing) {
+      return;
+    }
+    equipment.RecordChange();
+  }
+
+  void HandleEquipmentUpdate(std::uint64_t batchedEvents) {
+    if (!playing || !faction || !engine) {
+      return;
+    }
+    auto *player = RE::PlayerCharacter::GetSingleton();
+    auto *processLists = RE::ProcessLists::GetSingleton();
+    if (!player || !processLists) {
+      return;
+    }
+
+    auto current = CapturePlayerAppearance();
+    if (!lastPlayerAppearance) {
+      lastPlayerAppearance = std::move(current);
+      return;
+    }
+    auto previous = std::move(*lastPlayerAppearance);
+    lastPlayerAppearance = current;
+    if (previous == current) {
+      return;
+    }
+
+    const auto currentGameDays = CurrentGameDays();
+    if (!currentGameDays) {
+      return;
+    }
+    const auto gameDays = *currentGameDays;
+    processLists->ForEachHighActor([&](RE::Actor &actor) {
+      if (!IsEligibleGuard(actor) || !actor.Is3DLoaded() ||
+          !IsInObservationRange(actor, *player)) {
+        return RE::BSContainer::ForEachResult::kContinue;
+      }
+      const auto detectionLevel = actor.RequestDetectionLevel(player);
+      bool lineOfSightArgument = false;
+      const auto hasLineOfSight =
+          detectionLevel > 0 &&
+          actor.HasLineOfSight(player, lineOfSightArgument);
+      if (!hasLineOfSight) {
+        return RE::BSContainer::ForEachResult::kContinue;
+      }
+
+      const auto observer = actor.GetFormID();
+      const auto registered =
+          skyrim_remember_register(engine.get(), observer, gameDays);
+      if (registered != BridgeStatus::Created &&
+          registered != BridgeStatus::Ok) {
+        SKSE::log::error(
+            "Equipment observer registration failed: ref={:08X} status={}",
+            observer, static_cast<std::uint32_t>(registered));
+        return RE::BSContainer::ForEachResult::kContinue;
+      }
+
+      // Did this guard recognize the Player a moment ago, before the change?
+      AppearanceResult before{};
+      auto status = QueryAppearance({.observer = observer,
+                                     .appearance = &previous,
+                                     .visualContinuity = false,
+                                     .learn = false},
+                                    before);
+      if (status != BridgeStatus::Ok) {
+        SKSE::log::error(
+            "Previous appearance evaluation failed: ref={:08X} status={}",
+            observer, static_cast<std::uint32_t>(status));
+        return RE::BSContainer::ForEachResult::kContinue;
+      }
+
+      // A guard that was watching a recognized Player keeps the identity
+      // across the change, so the new outfit is learned as the Player's.
+      AppearanceResult after{};
+      status = QueryAppearance({.observer = observer,
+                                .appearance = &current,
+                                .visualContinuity = before.recognized != 0,
+                                .learn = true,
+                                .gameDays = gameDays},
+                               after);
+      if (status != BridgeStatus::Ok) {
+        SKSE::log::error(
+            "Changed appearance inspection failed: ref={:08X} status={}",
+            observer, static_cast<std::uint32_t>(status));
+        return RE::BSContainer::ForEachResult::kContinue;
+      }
+
+      const auto distance =
+          actor.GetPosition().GetDistance(player->GetPosition());
+      SKSE::log::info("Appearance transition: observer={:08X} "
+                      "batchedEvents={} detection={} "
+                      "lineOfSight=true distance={} "
+                      "previousRecognized={} continuity={} recognized={} "
+                      "linked={} learned={} faceVisible={} known={}",
+                      observer, batchedEvents, detectionLevel, distance,
+                      before.recognized != 0, before.recognized != 0,
+                      after.recognized != 0, after.linkedByContinuity != 0,
+                      after.learned != 0, after.faceVisible != 0,
+                      after.knownAppearances);
+      return RE::BSContainer::ForEachResult::kContinue;
+    });
   }
 
   void Inspect(const SKSE::CrosshairRefEvent *event) {
@@ -273,16 +440,17 @@ private:
     if (!actor) {
       return;
     }
-    const bool eligible = actor != RE::PlayerCharacter::GetSingleton() &&
-                          !actor->IsDead() && actor->IsGuard() &&
-                          actor->IsInFaction(faction);
-    if (!eligible) {
+    if (!IsEligibleGuard(*actor)) {
       SKSE::log::info("Guard probe ignored: ref={:08X} (outside scope)",
                       referenceID);
       return;
     }
 
-    const auto gameDays = CurrentGameDays();
+    const auto currentGameDays = CurrentGameDays();
+    if (!currentGameDays) {
+      return;
+    }
+    const auto gameDays = *currentGameDays;
     const auto registered =
         skyrim_remember_register(engine.get(), referenceID, gameDays);
     if (registered != BridgeStatus::Created && registered != BridgeStatus::Ok) {
@@ -298,11 +466,35 @@ private:
                        static_cast<std::uint32_t>(read));
       return;
     }
+    // Looking at a guard through the crosshair is deliberate contact: the
+    // guard is given the chance to memorize what the Player looks like now.
+    const auto appearance = CapturePlayerAppearance();
+    AppearanceResult appearanceResult{};
+    const auto appearanceStatus = QueryAppearance({.observer = referenceID,
+                                                   .appearance = &appearance,
+                                                   .visualContinuity = false,
+                                                   .learn = true,
+                                                   .gameDays = gameDays},
+                                                  appearanceResult);
+    if (appearanceStatus != BridgeStatus::Ok) {
+      SKSE::log::error("Appearance inspection failed: ref={:08X} status={}",
+                       referenceID,
+                       static_cast<std::uint32_t>(appearanceStatus));
+      return;
+    }
     SKSE::log::info("Guard memory: ref={:08X} created={} recognition={} "
                     "suspicion={} fear={} respect={} gameDays={} lastDecay={}",
                     referenceID, registered == BridgeStatus::Created,
                     snapshot.recognition, snapshot.suspicion, snapshot.fear,
                     snapshot.respect, gameDays, snapshot.lastDecayGameDays);
+    LogAppearance(referenceID, appearanceResult);
+    if (appearanceResult.learned != 0) {
+      for (const auto &item : appearance.items) {
+        SKSE::log::info(
+            "Appearance equipment: observer={:08X} item={:08X} slots={:08X}",
+            referenceID, item.formId, item.slotMask);
+      }
+    }
   }
 };
 } // namespace

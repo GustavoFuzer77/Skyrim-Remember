@@ -84,11 +84,19 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     AUTHOR "fuzer"
     VERSION ${PROJECT_VERSION}
     SOURCES
-        cpp/include/RustBridge.h
+        cpp/include/Appearance.h
         cpp/include/Defines.h
-        cpp/src/Plugin.cpp
-        cpp/src/GuardProbe.cpp
+        cpp/include/EquipmentBatch.h
         cpp/include/GuardProbe.h
+        cpp/include/Persistence.h
+        cpp/include/PlayerAppearance.h
+        cpp/include/RustBridge.h
+        cpp/src/Appearance.cpp
+        cpp/src/EquipmentBatch.cpp
+        cpp/src/GuardProbe.cpp
+        cpp/src/Persistence.cpp
+        cpp/src/Plugin.cpp
+        cpp/src/PlayerAppearance.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE cpp/include)
@@ -108,7 +116,9 @@ add_custom_target(rust_tests
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(BridgeSmoke cpp/tests/BridgeSmoke.cpp)
+    # Appearance.cpp is deliberately free of Skyrim dependencies so that the
+    # outfit merge and the face rule can be tested without the game.
+    add_executable(BridgeSmoke cpp/tests/BridgeSmoke.cpp cpp/src/Appearance.cpp)
     target_include_directories(BridgeSmoke PRIVATE cpp/include)
     target_link_libraries(BridgeSmoke PRIVATE skyrim_remember_rust)
     add_test(NAME bridge_smoke COMMAND BridgeSmoke)

@@ -1,1 +1,7 @@
-#define GuardFactionWhiterun 0x0002BE39
+#pragma once
+
+#include <cstdint>
+
+namespace SkyrimRemember::Forms {
+inline constexpr std::uint32_t WhiterunGuardFactionLocalID = 0x0002BE39U;
+}
