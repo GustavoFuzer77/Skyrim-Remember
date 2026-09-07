@@ -6,9 +6,11 @@
 #include <RE/B/BSPointerHandle.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -20,10 +22,16 @@ namespace SkyrimRemember {
 
 // Finds the NPCs that can currently see the Player and reports each one once.
 //
-// Observation starts at the NPC, never at what the Player is aiming at. The
-// scan is driven by a task that re-schedules itself every frame and does real
-// work only once the interval in ObservationTuning has elapsed, so there is no
-// external thread and nothing touches Skyrim off the main thread.
+// Observation starts at the NPC, never at what the Player is aiming at.
+//
+// The scan is paced by a timer thread whose *only* job is to hand one task to
+// the main thread per interval. That thread never touches a Skyrim object;
+// SKSE::TaskInterface::AddTask is the designated thread-safe way to move work
+// onto the main thread, and every line of actual work runs there.
+//
+// It must not be a task that re-schedules itself: SKSE can drain its queue
+// until the queue is empty, so a self-re-adding task never lets the frame end
+// and the game freezes on the main menu. That mistake was made once here.
 //
 // Cost is bounded two ways: the cheap enumeration of high actors happens once
 // per pass, and only a fixed budget of *enabled* actors pays for the expensive
@@ -77,7 +85,7 @@ private:
     std::array<std::uint64_t, npcProfileCount> byProfile{};
   };
 
-  void Arm();
+  void Start();
   void Tick();
   void RunSlice(TimePoint now);
   void RefreshPending();
@@ -95,9 +103,11 @@ private:
   ScanMetrics metrics;
   TimePoint lastScan{};
   TimePoint lastMetrics{};
-  std::uint64_t generation = 0;
-  bool active = false;
-  bool armed = false;
+  // Read by the timer thread, written by the main thread.
+  std::atomic<bool> active{false};
+  // Declared last on purpose: its destructor stops and joins the thread before
+  // any member the thread might still be reading is destroyed.
+  std::jthread timer;
 };
 
 } // namespace SkyrimRemember

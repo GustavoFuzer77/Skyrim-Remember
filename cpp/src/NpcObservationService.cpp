@@ -24,56 +24,63 @@ void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface,
   const auto now = Clock::now();
   lastScan = now;
   lastMetrics = now;
-  if (!armed) {
-    armed = true;
-    Arm();
-  }
+  Start();
 }
 
-void NpcObservationService::SetActive(bool value) { active = value; }
+void NpcObservationService::SetActive(bool value) {
+  active.store(value, std::memory_order_release);
+}
 
 void NpcObservationService::Reset() {
-  ++generation;
   pending.clear();
   observers.clear();
   metrics = {};
   const auto now = Clock::now();
   lastScan = now;
   lastMetrics = now;
-  // The abandoned slice will notice the generation and stop; this restarts the
-  // chain so a reset never leaves the scan without an owner.
-  Arm();
+  // A task queued just before this runs harmlessly afterwards: it finds the
+  // cursor and the cooldowns already cleared and simply starts a fresh slice.
 }
 
-void NpcObservationService::Arm() {
-  if (!tasks) {
+void NpcObservationService::Start() {
+  if (!tasks || timer.joinable()) {
     return;
   }
-  tasks->AddTask([this, scheduled = generation] {
-    if (generation != scheduled) {
-      // A Reset armed a fresh chain; this one is stale.
-      return;
-    }
-    try {
-      Tick();
-    } catch (...) {
-      SKSE::log::error("Observation tick failed with an exception");
-    }
-    // Rescheduling is separate from the work, so one bad slice cannot end the
-    // chain and a failure to reschedule cannot go unnoticed.
-    try {
-      Arm();
-    } catch (...) {
-      SKSE::log::critical("Observation scan stopped: could not reschedule");
+  timer = std::jthread([this](std::stop_token stop) {
+    // Nothing in this loop touches a Skyrim object. It sleeps, and it hands a
+    // task to the main thread. Waking in small steps so that shutdown does not
+    // have to wait out a whole interval.
+    constexpr auto step = std::chrono::milliseconds{50};
+    while (!stop.stop_requested()) {
+      for (auto waited = std::chrono::milliseconds::zero();
+           waited < ObservationTuning::scanInterval && !stop.stop_requested();
+           waited += step) {
+        std::this_thread::sleep_for(step);
+      }
+      if (stop.stop_requested()) {
+        return;
+      }
+      if (!active.load(std::memory_order_acquire)) {
+        continue;
+      }
+      tasks->AddTask([this] {
+        try {
+          Tick();
+        } catch (...) {
+          SKSE::log::error("Observation tick failed with an exception");
+        }
+      });
     }
   });
 }
 
 void NpcObservationService::Tick() {
-  if (!active) {
+  if (!active.load(std::memory_order_acquire)) {
     return;
   }
   const auto now = Clock::now();
+  // The timer already paces this. The check only guards against two tasks
+  // arriving in the same frame after a stall.
   if (now - lastScan >= ObservationTuning::scanInterval) {
     lastScan = now;
     RunSlice(now);
