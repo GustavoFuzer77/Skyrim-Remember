@@ -10,6 +10,12 @@ class ProfileReactionRouter {
 public:
   void OnObserved(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, const IdentityObservation &identity);
 
+  // An observation pass is starting: adapters may show what they grouped.
+  void BeginPass();
+
+  // Load, revert, or new game.
+  void Reset();
+
 private:
   GuardReactionAdapter guards;
 };

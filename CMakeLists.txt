@@ -88,6 +88,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/AppearanceMemoryService.h
         cpp/include/Defines.h
         cpp/include/EquipmentBatch.h
+        cpp/include/GuardNotices.h
         cpp/include/GuardReactionAdapter.h
         cpp/include/NpcObservation.h
         cpp/include/NpcObservationService.h
@@ -101,6 +102,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/src/Appearance.cpp
         cpp/src/AppearanceMemoryService.cpp
         cpp/src/EquipmentBatch.cpp
+        cpp/src/GuardNotices.cpp
         cpp/src/GuardReactionAdapter.cpp
         cpp/src/NpcClassification.cpp
         cpp/src/NpcObservation.cpp
@@ -136,6 +138,7 @@ if(BUILD_TESTING)
     add_executable(BridgeSmoke
         cpp/tests/BridgeSmoke.cpp
         cpp/src/Appearance.cpp
+        cpp/src/GuardNotices.cpp
         cpp/src/NpcProfile.cpp)
     target_include_directories(BridgeSmoke PRIVATE cpp/include)
     target_link_libraries(BridgeSmoke PRIVATE skyrim_remember_rust)

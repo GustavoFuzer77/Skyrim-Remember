@@ -2,8 +2,9 @@
 
 An SKSE plugin that gives Skyrim's NPCs a memory of what you look like.
 
-> **Early work in progress.** The plugin builds and runs, and guards do form
-> memories, but those memories do not change anything in the game yet. See
+> **Early work in progress.** The plugin builds and runs, NPCs form memories,
+> and guards now show a small recognition notice. Broader gameplay reactions
+> are not built yet. See
 > [What works today](#what-works-today).
 
 ## The idea
@@ -114,6 +115,11 @@ you.
 - Recognising you through a change of clothes they watched
 - Memory that fades with in-game time
 - Everything saved in and restored from your save file
+- A HUD notice when a guard recognises you — including the first time — or
+  stops recognising you. Guards recognising you together share one notice,
+  and the same guard is not announced again within a few minutes. A guard
+  meeting you for the first time is learning your face, not recognising you,
+  so that sighting stays silent.
 
 **Not built yet**
 
@@ -123,8 +129,8 @@ and followers do not use any of it. Those come later — this release is the
 foundation they will be built on.
 
 All nearby NPC profiles can form appearance memories. Only Whiterun guards have
-a reaction adapter at the moment, and it remains intentionally inert until the
-first gameplay reaction is implemented. Followers, citizens and merchants are
+a reaction adapter at the moment, and its first visible effect is deliberately
+limited to recognition notices. Followers, citizens and merchants are
 recognised as categories but do not react yet.
 
 ## Requirements

@@ -1,4 +1,5 @@
 #include "Appearance.h"
+#include "GuardReactionAdapter.h"
 #include "NpcProfile.h"
 #include "RustBridge.h"
 
@@ -141,6 +142,90 @@ int RunSmokeTests() {
     }
     CHECK(std::strcmp(ProfileName(NpcProfile::Guard), "Guard") == 0);
     CHECK(std::strcmp(ProfileName(NpcProfile::Merchant), "Merchant") == 0);
+  }
+
+  // Guard reaction policy is pure: the first recognition of a session or an
+  // encounter is a reaction, a stranger's first sighting is not.
+  {
+    using SkyrimRemember::DecideGuardReaction;
+    using SkyrimRemember::GuardReaction;
+    using SkyrimRemember::IdentityObservation;
+
+    IdentityObservation identity{};
+    identity.recognitionChanged = true;
+    identity.appearance.recognized = 1;
+    CHECK(DecideGuardReaction(identity) == GuardReaction::Recognized);
+
+    identity.newObserver = true;
+    CHECK(DecideGuardReaction(identity) == GuardReaction::None);
+
+    identity.newObserver = false;
+    identity.appearance.recognized = 0;
+    CHECK(DecideGuardReaction(identity) == GuardReaction::Unrecognized);
+
+    identity.recognitionChanged = false;
+    CHECK(DecideGuardReaction(identity) == GuardReaction::None);
+  }
+
+  // The notice board groups, spaces and cancels notices without ever touching
+  // a guard's memory or threshold.
+  {
+    using SkyrimRemember::FormatGuardNotice;
+    using SkyrimRemember::GuardNoticeBoard;
+    using SkyrimRemember::GuardReaction;
+    namespace Tuning = SkyrimRemember::GuardNoticeTuning;
+    using std::chrono::seconds;
+
+    const auto start = GuardNoticeBoard::Clock::time_point{} + std::chrono::hours{1};
+
+    // The very first recognition is shown, and guards recognizing together are
+    // grouped into one notice.
+    GuardNoticeBoard board;
+    board.Record(1, GuardReaction::Recognized);
+    board.Record(2, GuardReaction::Recognized);
+    board.Record(3, GuardReaction::Unrecognized); // never announced: not news
+    auto summary = board.Flush(start);
+    CHECK(summary.recognized == 2 && summary.unrecognized == 0);
+    CHECK(board.Tracked() == 2);
+
+    // Inside the grouping interval nothing is shown, but nothing is lost.
+    board.Record(4, GuardReaction::Recognized);
+    CHECK(board.Flush(start + seconds{1}).Empty());
+    summary = board.Flush(start + Tuning::groupingInterval);
+    CHECK(summary.recognized == 1);
+
+    // Flicker around the threshold cancels out before it reaches the HUD.
+    auto now = start + Tuning::groupingInterval * 2;
+    board.Record(1, GuardReaction::Unrecognized);
+    board.Record(1, GuardReaction::Recognized);
+    CHECK(board.Flush(now).Empty());
+
+    // A real loss waits out the per-guard spacing, then is shown once.
+    board.Record(2, GuardReaction::Unrecognized);
+    CHECK(board.Flush(now).Empty());
+    now = start + Tuning::perGuardSpacing;
+    summary = board.Flush(now);
+    CHECK(summary.recognized == 0 && summary.unrecognized == 1);
+
+    // Recognizing again in the same encounter window is not repeated...
+    board.Record(1, GuardReaction::Recognized);
+    CHECK(board.Flush(now + Tuning::groupingInterval).Empty());
+
+    // ...but a later encounter is announced again, and stale guards are pruned.
+    now = start + Tuning::repeatAfter + Tuning::perGuardSpacing;
+    board.Record(1, GuardReaction::Recognized);
+    summary = board.Flush(now);
+    CHECK(summary.recognized == 1);
+    CHECK(board.Tracked() == 1);
+
+    board.Reset();
+    CHECK(board.Tracked() == 0);
+
+    CHECK(FormatGuardNotice(GuardReaction::Recognized, 1) == "A guard recognizes you.");
+    CHECK(FormatGuardNotice(GuardReaction::Recognized, 3) == "3 guards recognize you.");
+    CHECK(FormatGuardNotice(GuardReaction::Unrecognized, 1) == "A guard no longer recognizes you.");
+    CHECK(FormatGuardNotice(GuardReaction::Unrecognized, 2) == "2 guards no longer recognize you.");
+    CHECK(FormatGuardNotice(GuardReaction::Recognized, 0).empty());
   }
 
   CHECK(skyrim_remember_initialize(Log));

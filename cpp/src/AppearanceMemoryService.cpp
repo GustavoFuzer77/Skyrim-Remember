@@ -62,7 +62,7 @@ void AppearanceMemoryService::SetSessionActive(bool value) {
 void AppearanceMemoryService::Reset() {
   lastPlayerAppearance.reset();
   routineAppearance.reset();
-  logState.clear();
+  observerStates.clear();
   metrics = {};
   lastMetrics = Clock::now();
   transitionActive = false;
@@ -74,6 +74,7 @@ void AppearanceMemoryService::CaptureBaseline() {
 }
 
 void AppearanceMemoryService::BeginObservationPass() {
+  PruneObserverStates();
   routineAppearance.reset();
   ++metrics.passes;
 }
@@ -136,16 +137,26 @@ void AppearanceMemoryService::ReportMetrics() {
                   metrics.bridgeCalls,
                   metrics.bridging.count(),
                   metrics.failures,
-                  logState.size());
+                  observerStates.size());
   metrics = {};
 }
 
-bool AppearanceMemoryService::RecognitionChanged(std::uint32_t observer, bool recognized) {
-  auto &state = logState[observer];
+bool AppearanceMemoryService::RecordRecognition(const NpcObservationContext &context, bool recognized) {
+  auto &state = observerStates[context.referenceFormId];
   const auto changed = !state.known || state.recognized != recognized;
   state.known = true;
   state.recognized = recognized;
+  state.lastObserved = Clock::now();
   return changed;
+}
+
+void AppearanceMemoryService::PruneObserverStates() {
+  // Only the last verdict is forgotten here, never the memory in the Rust core:
+  // an observer unseen this long meets the Player again as a new encounter.
+  const auto now = Clock::now();
+  std::erase_if(observerStates, [now](const auto &entry) {
+    return now - entry.second.lastObserved > ObservationTuning::observerRetention;
+  });
 }
 
 std::optional<IdentityObservation> AppearanceMemoryService::Observe(const NpcObservationContext &context, const PerceptionOutcome &outcome,
@@ -191,11 +202,11 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveRoutine(const
   }
 
   // Log the events that mean something, not every tick of the scan.
-  const auto recognitionChanged = RecognitionChanged(observer, result.recognized != 0);
+  const auto recognitionChanged = RecordRecognition(context, result.recognized != 0);
   if (registered == BridgeStatus::Created || result.learned != 0 || recognitionChanged) {
     LogAppearance("Observation", context, outcome, result);
   }
-  return IdentityObservation{result, registered == BridgeStatus::Created};
+  return IdentityObservation{result, registered == BridgeStatus::Created, recognitionChanged};
 }
 
 std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
@@ -231,14 +242,14 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(co
     return std::nullopt;
   }
 
-  RecognitionChanged(observer, after.recognized != 0);
+  const auto recognitionChanged = RecordRecognition(context, after.recognized != 0);
   SKSE::log::info("Appearance transition: observer={:08X} batchedEvents={} "
                   "previousRecognized={}",
                   observer,
                   transitionEvents,
                   before.recognized != 0);
   LogAppearance("Appearance transition result", context, outcome, after);
-  return IdentityObservation{after, registered == BridgeStatus::Created};
+  return IdentityObservation{after, registered == BridgeStatus::Created, recognitionChanged};
 }
 
 bool AppearanceMemoryService::BeginAppearanceTransition(std::uint64_t batchedEvents) {

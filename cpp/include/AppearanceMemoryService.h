@@ -17,6 +17,10 @@ namespace SkyrimRemember {
 struct IdentityObservation {
   AppearanceResult appearance;
   bool newObserver = false;
+  // The verdict differs from this observer's previous one, or there was none:
+  // a first sighting, the first observation after a load, or a new encounter
+  // after the observer went unseen long enough to be pruned.
+  bool recognitionChanged = false;
 };
 
 // Learns and evaluates what the Player looks like for every observing NPC.
@@ -55,9 +59,10 @@ public:
 private:
   using Clock = std::chrono::steady_clock;
 
-  struct ObserverLogState {
+  struct ObserverRecognitionState {
     bool recognized = false;
     bool known = false;
+    Clock::time_point lastObserved;
   };
 
   // What the memory half of one observation costs, aggregated per interval.
@@ -89,14 +94,16 @@ private:
 
   std::optional<IdentityObservation> ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome);
 
-  bool RecognitionChanged(std::uint32_t observer, bool recognized);
+  bool RecordRecognition(const NpcObservationContext &context, bool recognized);
+
+  void PruneObserverStates();
 
   MemoryEngine *engine = nullptr;
   AdapterMetrics metrics;
   Clock::time_point lastMetrics;
   std::optional<CapturedAppearance> lastPlayerAppearance;
   std::optional<CapturedAppearance> routineAppearance;
-  std::unordered_map<std::uint32_t, ObserverLogState> logState;
+  std::unordered_map<std::uint32_t, ObserverRecognitionState> observerStates;
   CapturedAppearance transitionPrevious;
   CapturedAppearance transitionCurrent;
   std::uint64_t transitionEvents = 0;

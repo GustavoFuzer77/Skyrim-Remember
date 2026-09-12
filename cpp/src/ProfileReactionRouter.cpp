@@ -18,4 +18,12 @@ void ProfileReactionRouter::OnObserved(RE::Actor &actor, const NpcObservationCon
   }
 }
 
+void ProfileReactionRouter::BeginPass() {
+  guards.BeginPass();
+}
+
+void ProfileReactionRouter::Reset() {
+  guards.Reset();
+}
+
 } // namespace SkyrimRemember

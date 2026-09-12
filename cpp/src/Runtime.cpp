@@ -69,6 +69,7 @@ public:
         tasks,
         [this](NpcObservationService::Trigger) {
           this->appearanceMemory.BeginObservationPass();
+          this->reactions.BeginPass();
         },
         [this](RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
           const auto identity = this->appearanceMemory.Observe(context, outcome, trigger == NpcObservationService::Trigger::AppearanceChanged);
@@ -284,6 +285,7 @@ private:
     equipment.Reset();
     observations.Reset();
     appearanceMemory.Reset();
+    reactions.Reset();
     SKSE::log::info("Memory load preparation: reason={}", reason);
   }
 
