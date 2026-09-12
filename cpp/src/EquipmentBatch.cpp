@@ -37,14 +37,18 @@ void EquipmentBatch::MenuClosed() {
 }
 
 void EquipmentBatch::Schedule() {
+  
   if (!tasks) {
     return;
   }
+
   if (ItemMenuIsOpen()) {
     state = State::Deferred;
     return;
   }
+
   state = State::Queued;
+  
   tasks->AddTask([this, scheduled = generation] {
     if (generation != scheduled) {
       // A Reset ran between scheduling and now; its state wins.

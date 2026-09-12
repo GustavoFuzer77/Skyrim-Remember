@@ -3,6 +3,7 @@
 #include "GuardMemoryAdapter.h"
 #include "NpcObservationService.h"
 #include "NpcProfile.h"
+#include "ObservationTuning.h"
 #include "Persistence.h"
 #include "RustBridge.h"
 
@@ -13,16 +14,17 @@
 #include <RE/U/UI.h>
 #include <SKSE/SKSE.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 
 namespace SkyrimRemember {
+
 namespace {
 
-// Owns the session: the Rust engine, the scan, the guard adapter and the
+// Owns the session: the Rust engine, the scan, the guard adapter (and futures adapters) and the
 // equipment batch. Everything below runs on Skyrim's main thread.
-class Runtime final : public RE::BSTEventSink<RE::TESEquipEvent>,
-                      public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+class Runtime final : public RE::BSTEventSink<RE::TESEquipEvent>, public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
 public:
   static Runtime &Get() {
     static Runtime instance;
@@ -30,54 +32,57 @@ public:
   }
 
   bool Register() {
-    engine.reset(skyrim_remember_create());
+
     const auto messaging = SKSE::GetMessagingInterface();
     const auto serialization = SKSE::GetSerializationInterface();
     const auto tasks = SKSE::GetTaskInterface();
+
+    engine.reset(skyrim_remember_create());
+
     if (!engine || !messaging || !serialization || !tasks) {
       return false;
     }
+
     if (!messaging->RegisterListener(OnMessage)) {
       return false;
     }
 
     adapter.Configure(engine.get());
+
     // Runtime is a function-local static, so it outlives every task the batch
     // and the observation service schedule.
     equipment.Configure(tasks, [this](std::uint64_t batchedEvents) {
-      FlushEquipmentBatch(batchedEvents);
+      this->FlushEquipmentBatch(batchedEvents);
     });
-    observations.Configure(
-        tasks, [this](const NpcObservationContext &context,
-                      const PerceptionOutcome &outcome,
-                      NpcObservationService::Trigger trigger) {
-          adapter.OnObserved(context, outcome, trigger);
-        });
+
+    observations.Configure(tasks, [this](const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
+      this->adapter.OnObserved(context, outcome, trigger);
+    });
 
     serialization->SetUniqueID(Persistence::SerializationID);
     serialization->SetSaveCallback(OnSave);
     serialization->SetLoadCallback(OnLoad);
     serialization->SetRevertCallback(OnRevert);
+
     return true;
   }
 
-  RE::BSEventNotifyControl
-  ProcessEvent(const RE::TESEquipEvent *event,
-               RE::BSTEventSource<RE::TESEquipEvent> *) override {
+  RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent *event, RE::BSTEventSource<RE::TESEquipEvent> *) override {
     try {
       auto *player = RE::PlayerCharacter::GetSingleton();
+
       if (event && player && playing && event->actor.get() == player) {
         equipment.RecordChange();
       }
+
     } catch (...) {
       SKSE::log::error("Equipment event failed with an exception");
     }
+
     return RE::BSEventNotifyControl::kContinue;
   }
 
-  RE::BSEventNotifyControl
-  ProcessEvent(const RE::MenuOpenCloseEvent *event,
-               RE::BSTEventSource<RE::MenuOpenCloseEvent> *) override {
+  RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent *event, RE::BSTEventSource<RE::MenuOpenCloseEvent> *) override {
     try {
       if (event && !event->opening) {
         equipment.MenuClosed();
@@ -89,17 +94,28 @@ public:
   }
 
 private:
-  using EnginePtr =
-      std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>;
-  EnginePtr engine{nullptr, skyrim_remember_destroy};
+
   EquipmentBatch equipment;
-  NpcObservationService observations;
-  GuardMemoryAdapter adapter;
   bool equipmentAttached = false;
   bool menuAttached = false;
   bool classified = false;
   bool playing = false;
   bool sessionReady = false;
+
+  using EnginePtr = std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>; // <tipo do pointer, tipo do deleter>
+  EnginePtr engine{nullptr, skyrim_remember_destroy};
+
+#pragma region adapters
+
+  GuardMemoryAdapter adapter;
+
+  // add others adapters here (citizens, generics, followers, etc)
+
+#pragma endregion
+
+  // Declared last on purpose: its destructor stops and joins the timer thread
+  // before the adapters and the engine its tasks reach into are destroyed.
+  NpcObservationService observations;
 
   void SetPlaying(bool value) {
     playing = value;
@@ -108,6 +124,7 @@ private:
   }
 
   void FlushEquipmentBatch(std::uint64_t batchedEvents) {
+
     if (!playing) {
       return;
     }
@@ -222,14 +239,24 @@ private:
       menuAttached = true;
     }
     SKSE::log::info("Skyrim Remember ready: observation starts at the NPC");
+    // Print the knobs the metrics have to be read against, so a log pasted
+    // into a report is self-describing.
+    SKSE::log::info("Observation tuning: scanIntervalMs={} budgetPerSlice={} "
+                    "cooldownMs={} maxDistance={} metricsIntervalMs={} "
+                    "slowSliceUs={}",
+                    ObservationTuning::scanInterval.count(),
+                    ObservationTuning::actorBudgetPerScan,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(ObservationTuning::observerCooldown).count(),
+                    ObservationTuning::maximumObservationDistance,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(ObservationTuning::metricsInterval).count(),
+                    ObservationTuning::slowSliceThreshold.count());
   }
 
   void Reset(const char *reason) {
     PrepareForLoad(reason);
     const auto status = skyrim_remember_clear(engine.get());
     sessionReady = status == BridgeStatus::Ok;
-    SKSE::log::info("Memory reset: reason={} status={}", reason,
-                    static_cast<std::uint32_t>(status));
+    SKSE::log::info("Memory reset: reason={} status={}", reason, static_cast<std::uint32_t>(status));
   }
 
   void PrepareForLoad(const char *reason) {
@@ -244,13 +271,14 @@ private:
   void Load(SKSE::SerializationInterface *serialization) {
     sessionReady = false;
     const auto outcome = Persistence::Load(engine.get(), serialization);
-    sessionReady = outcome == Persistence::LoadOutcome::Restored ||
-                   outcome == Persistence::LoadOutcome::NoData;
+    sessionReady = outcome == Persistence::LoadOutcome::Restored || outcome == Persistence::LoadOutcome::NoData;
   }
 };
 
 } // namespace
 
-bool RegisterRuntime() { return Runtime::Get().Register(); }
+bool RegisterRuntime() {
+  return Runtime::Get().Register();
+}
 
 } // namespace SkyrimRemember

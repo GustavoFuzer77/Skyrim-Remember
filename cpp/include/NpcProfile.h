@@ -16,10 +16,10 @@ namespace SkyrimRemember {
 // into Generic rather than getting a category of its own.
 enum class NpcProfile : std::uint32_t {
   Guard = 0,
-  Follower,
-  Citizen,
-  Merchant,
-  Generic
+  Follower = 1 ,
+  Citizen = 2,
+  Merchant = 3,
+  Generic = 4
 };
 
 inline constexpr std::size_t npcProfileCount = 5;

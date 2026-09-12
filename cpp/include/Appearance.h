@@ -17,11 +17,13 @@ namespace SkyrimRemember {
 // Creation Kit slot numbers: bit 20 is CK slot 50. PlayerAppearance.cpp holds
 // every constant here against the CommonLibSSE enum with static_asserts.
 namespace BipedSlot {
-inline constexpr std::uint32_t Head = 1U << 0;           // kHead
-inline constexpr std::uint32_t Hair = 1U << 1;           // kHair
-inline constexpr std::uint32_t Circlet = 1U << 12;       // kCirclet
+
+inline constexpr std::uint32_t Head = 1U << 0;            // kHead
+inline constexpr std::uint32_t Hair = 1U << 1;            // kHair
+inline constexpr std::uint32_t Circlet = 1U << 12;        // kCirclet
 inline constexpr std::uint32_t DecapitateHead = 1U << 20; // kDecapitateHead
 inline constexpr std::uint32_t Decapitate = 1U << 21;     // kDecapitate
+
 } // namespace BipedSlot
 
 // Bits that carry no visual meaning: the game uses them for decapitation

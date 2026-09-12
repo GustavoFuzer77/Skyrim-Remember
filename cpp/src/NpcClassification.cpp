@@ -1,5 +1,5 @@
-#include "NpcProfile.h"
 #include "Defines.h"
+#include "NpcProfile.h"
 
 #include <RE/A/Actor.h>
 #include <RE/P/PlayerCharacter.h>
@@ -11,30 +11,34 @@
 
 namespace SkyrimRemember {
 namespace {
-// Verified in the local Skyrim.esm FACT/EDID records: GuardFactionWhiterun.
+
 RE::TESFaction *whiterunGuardFaction = nullptr;
+// add new factions here (types)
 
 // The keyword every humanoid NPC record carries; creatures do not.
 constexpr std::string_view npcTypeKeyword = "ActorTypeNPC";
+
 } // namespace
 
 bool InitializeClassification() {
+
   auto *data = RE::TESDataHandler::GetSingleton();
-  whiterunGuardFaction =
-      data ? data->LookupForm<RE::TESFaction>(
-                 Forms::WhiterunGuardFactionLocalID, "Skyrim.esm")
-           : nullptr;
+
+  whiterunGuardFaction = data ? data->LookupForm<RE::TESFaction>(FormIds::WhiterunGuardFactionLocalID, "Skyrim.esm") : nullptr;
+
   if (!whiterunGuardFaction) {
     SKSE::log::error("Classification disabled: GuardFactionWhiterun not found");
     return false;
   }
-  SKSE::log::info("Classification ready: GuardFactionWhiterun={:08X}",
-                  whiterunGuardFaction->GetFormID());
+
+  SKSE::log::info("Classification ready: GuardFactionWhiterun={:08X}", whiterunGuardFaction->GetFormID());
   return true;
 }
 
 NpcProfile ClassifyNpc(RE::Actor &actor) {
+
   auto *player = RE::PlayerCharacter::GetSingleton();
+
   if (&actor == player) {
     return NpcProfile::Generic;
   }
@@ -45,8 +49,7 @@ NpcProfile ClassifyNpc(RE::Actor &actor) {
   // templates, which is why the test stays this conservative — an actor that
   // stops matching simply stops being observed, and the memory it already has
   // is left untouched rather than reassigned.
-  if (whiterunGuardFaction && actor.IsGuard() &&
-      actor.IsInFaction(whiterunGuardFaction)) {
+  if (whiterunGuardFaction && actor.IsGuard() && actor.IsInFaction(whiterunGuardFaction)) {
     return NpcProfile::Guard;
   }
 
