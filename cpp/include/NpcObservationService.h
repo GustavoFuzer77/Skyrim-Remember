@@ -38,8 +38,9 @@ namespace SkyrimRemember {
 // detection and line-of-sight tests per slice. What does not fit is carried to
 // the next slice rather than dropped.
 //
-// The instance must outlive every task it schedules; the generation counter
-// makes a Reset abandon the chain already in flight.
+// The instance must outlive every task it schedules. A task queued just before
+// a Reset runs harmlessly afterwards: it finds the cursor and the cooldowns
+// already cleared and simply starts a fresh slice.
 class NpcObservationService {
 public:
   // Routine is the periodic sweep. AppearanceChanged is the discrete event
@@ -72,6 +73,10 @@ private:
   };
 
   struct ScanMetrics {
+    // Tasks the timer delivered, against the ones that did work. They should
+    // track each other; a gap means tasks are arriving faster than the main
+    // thread drains them.
+    std::uint64_t tasks = 0;
     std::uint64_t slices = 0;
     std::uint64_t refreshes = 0;
     std::uint64_t highActors = 0;
@@ -81,7 +86,15 @@ private:
     std::uint64_t detected = 0;
     std::uint64_t observed = 0;
     std::uint64_t backlog = 0;
+    std::uint64_t slowSlices = 0;
+    // Total across the interval, and the worst single slice in it. The peak is
+    // what a player feels; the total is what a profiler would show.
     std::chrono::microseconds duration{0};
+    std::chrono::microseconds peakSlice{0};
+    // Where that time went, so a regression points at its own cause.
+    std::chrono::microseconds classifying{0};
+    std::chrono::microseconds perceiving{0};
+    std::chrono::microseconds reporting{0};
     std::array<std::uint64_t, npcProfileCount> byProfile{};
   };
 
@@ -103,6 +116,7 @@ private:
   ScanMetrics metrics;
   TimePoint lastScan{};
   TimePoint lastMetrics{};
+  TimePoint reportedAt{};
   // Read by the timer thread, written by the main thread.
   std::atomic<bool> active{false};
   // Declared last on purpose: its destructor stops and joins the thread before

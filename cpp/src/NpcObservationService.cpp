@@ -7,6 +7,7 @@
 #include <RE/P/ProcessLists.h>
 #include <SKSE/SKSE.h>
 
+#include <algorithm>
 #include <utility>
 
 namespace SkyrimRemember {
@@ -14,6 +15,13 @@ namespace {
 std::size_t ProfileIndex(NpcProfile profile) {
   const auto index = static_cast<std::size_t>(profile);
   return index < npcProfileCount ? index : npcProfileCount - 1;
+}
+
+using Microseconds = std::chrono::microseconds;
+
+Microseconds Since(std::chrono::steady_clock::time_point start) {
+  return std::chrono::duration_cast<Microseconds>(
+      std::chrono::steady_clock::now() - start);
 }
 } // namespace
 
@@ -24,6 +32,7 @@ void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface,
   const auto now = Clock::now();
   lastScan = now;
   lastMetrics = now;
+  reportedAt = now;
   Start();
 }
 
@@ -38,6 +47,7 @@ void NpcObservationService::Reset() {
   const auto now = Clock::now();
   lastScan = now;
   lastMetrics = now;
+  reportedAt = now;
   // A task queued just before this runs harmlessly afterwards: it finds the
   // cursor and the cooldowns already cleared and simply starts a fresh slice.
 }
@@ -65,6 +75,7 @@ void NpcObservationService::Start() {
       }
       tasks->AddTask([this] {
         try {
+          ++metrics.tasks;
           Tick();
         } catch (...) {
           SKSE::log::error("Observation tick failed with an exception");
@@ -108,7 +119,9 @@ bool NpcObservationService::Examine(RE::Actor &actor,
                                     RE::PlayerCharacter &player, TimePoint now,
                                     Trigger trigger, bool respectCooldown) {
   ++metrics.examined;
+  const auto classifyStarted = Clock::now();
   const auto profile = ClassifyNpc(actor);
+  metrics.classifying += Since(classifyStarted);
   ++metrics.byProfile[ProfileIndex(profile)];
   if (!IsProfileEnabled(profile)) {
     // Classified and counted, but inert: a disabled profile must not spend the
@@ -127,7 +140,12 @@ bool NpcObservationService::Examine(RE::Actor &actor,
   }
   state.lastExamined = now;
 
+  // The two expensive Skyrim calls live in here: detection, and the line-of-
+  // sight ray cast. Timed apart from everything else because they are the most
+  // likely source of a spike.
+  const auto perceiveStarted = Clock::now();
   const auto outcome = PerceivePlayer(actor, player);
+  metrics.perceiving += Since(perceiveStarted);
   if (outcome.detectionLevel > 0) {
     ++metrics.detected;
   }
@@ -136,7 +154,11 @@ bool NpcObservationService::Examine(RE::Actor &actor,
   }
   ++metrics.observed;
   if (observer) {
+    // Everything downstream: reading the context, capturing the Player's
+    // appearance, and the calls across the Rust bridge.
+    const auto reportStarted = Clock::now();
     observer(DescribeObservation(actor, profile), outcome, trigger);
+    metrics.reporting += Since(reportStarted);
   }
   return true;
 }
@@ -166,8 +188,18 @@ void NpcObservationService::RunSlice(TimePoint now) {
   }
 
   metrics.backlog = pending.size();
-  metrics.duration += std::chrono::duration_cast<std::chrono::microseconds>(
-      Clock::now() - started);
+  const auto elapsed = Since(started);
+  metrics.duration += elapsed;
+  metrics.peakSlice = std::max(metrics.peakSlice, elapsed);
+  if (elapsed > ObservationTuning::slowSliceThreshold) {
+    // Reported the moment it happens rather than waiting for the aggregate, so
+    // a stutter can be matched against what was on screen.
+    ++metrics.slowSlices;
+    SKSE::log::warn("Slow observation slice: durationUs={} highActors={} "
+                    "examined={} enabled={} observed={} backlog={}",
+                    elapsed.count(), metrics.highActors, metrics.examined,
+                    metrics.enabled, metrics.observed, pending.size());
+  }
 }
 
 void NpcObservationService::ScanNow(Trigger trigger) {
@@ -208,16 +240,33 @@ void NpcObservationService::ReportMetrics(TimePoint now) {
   if (metrics.slices == 0) {
     return;
   }
-  // One aggregate line per interval. Never one line per actor.
+  const auto windowMs =
+      std::chrono::duration_cast<std::chrono::milliseconds>(now - reportedAt)
+          .count();
+  const auto averageUs =
+      static_cast<std::uint64_t>(metrics.duration.count()) / metrics.slices;
+  reportedAt = now;
+
+  // Two aggregate lines per interval. Never one line per actor.
+  //
+  // Cost first, because that is what a performance test reads. peakUs is the
+  // number that matters: a spike is what a player feels, and it vanishes into
+  // an average.
   SKSE::log::info(
-      "Observation metrics: slices={} refreshes={} highActors={} examined={} "
-      "enabled={} cooledDown={} detected={} observed={} backlog={} "
-      "totalUs={} trackedObservers={} guard={} follower={} citizen={} "
-      "merchant={} generic={}",
-      metrics.slices, metrics.refreshes, metrics.highActors, metrics.examined,
-      metrics.enabled, metrics.cooledDown, metrics.detected, metrics.observed,
-      metrics.backlog, metrics.duration.count(), observers.size(),
-      metrics.byProfile[ProfileIndex(NpcProfile::Guard)],
+      "Observation cost: windowMs={} tasks={} slices={} totalUs={} avgUs={} "
+      "peakUs={} slowSlices={} classifyUs={} perceiveUs={} reportUs={}",
+      windowMs, metrics.tasks, metrics.slices, metrics.duration.count(),
+      averageUs, metrics.peakSlice.count(), metrics.slowSlices,
+      metrics.classifying.count(), metrics.perceiving.count(),
+      metrics.reporting.count());
+
+  SKSE::log::info(
+      "Observation work: highActors={} examined={} enabled={} cooledDown={} "
+      "detected={} observed={} backlog={} trackedObservers={} guard={} "
+      "follower={} citizen={} merchant={} generic={}",
+      metrics.highActors, metrics.examined, metrics.enabled,
+      metrics.cooledDown, metrics.detected, metrics.observed, metrics.backlog,
+      observers.size(), metrics.byProfile[ProfileIndex(NpcProfile::Guard)],
       metrics.byProfile[ProfileIndex(NpcProfile::Follower)],
       metrics.byProfile[ProfileIndex(NpcProfile::Citizen)],
       metrics.byProfile[ProfileIndex(NpcProfile::Merchant)],

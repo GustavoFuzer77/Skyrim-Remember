@@ -32,4 +32,10 @@ inline constexpr std::chrono::seconds metricsInterval{10};
 // long session does not accumulate an entry per actor ever encountered.
 inline constexpr std::chrono::seconds observerRetention{60};
 
+// A single slice costing more than this gets a line of its own, immediately.
+// At 60 fps a whole frame is about 16600 us, so this is roughly an eighth of a
+// frame: not yet a dropped frame, but far past where the scan should be.
+// Aggregates hide spikes, and a spike is what a player actually feels.
+inline constexpr std::chrono::microseconds slowSliceThreshold{2000};
+
 } // namespace SkyrimRemember::ObservationTuning

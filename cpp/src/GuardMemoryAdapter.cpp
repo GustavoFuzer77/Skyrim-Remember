@@ -1,4 +1,5 @@
 #include "GuardMemoryAdapter.h"
+#include "ObservationTuning.h"
 #include "PlayerAppearance.h"
 
 #include <RE/C/Calendar.h>
@@ -52,31 +53,70 @@ void GuardMemoryAdapter::SetSessionActive(bool value) { sessionActive = value; }
 void GuardMemoryAdapter::Reset() {
   lastPlayerAppearance.reset();
   logState.clear();
+  metrics = {};
+  lastMetrics = Clock::now();
   transitionActive = false;
   transitionEvents = 0;
 }
 
 void GuardMemoryAdapter::CaptureBaseline() {
-  lastPlayerAppearance = CapturePlayerAppearance();
+  lastPlayerAppearance = Capture();
+}
+
+CapturedAppearance GuardMemoryAdapter::Capture() {
+  const auto started = Clock::now();
+  auto captured = CapturePlayerAppearance();
+  metrics.capturing += std::chrono::duration_cast<std::chrono::microseconds>(
+      Clock::now() - started);
+  ++metrics.appearanceCaptures;
+  return captured;
 }
 
 BridgeStatus GuardMemoryAdapter::Query(std::uint32_t observer,
                                        const CapturedAppearance &appearance,
                                        bool visualContinuity, bool learn,
                                        double gameDays,
-                                       AppearanceResult &result) const {
+                                       AppearanceResult &result) {
   const auto &items = appearance.items;
   const auto *data = items.empty() ? nullptr : items.data();
   const auto faceVisible = appearance.faceVisible ? 1U : 0U;
   const auto continuity = visualContinuity ? 1U : 0U;
-  if (learn) {
-    return skyrim_remember_observe_appearance(engine, observer, gameDays, data,
-                                              items.size(), faceVisible,
-                                              continuity, &result);
+  const auto started = Clock::now();
+  const auto status =
+      learn ? skyrim_remember_observe_appearance(engine, observer, gameDays,
+                                                 data, items.size(),
+                                                 faceVisible, continuity,
+                                                 &result)
+            : skyrim_remember_evaluate_appearance(engine, observer, data,
+                                                  items.size(), faceVisible,
+                                                  continuity, &result);
+  metrics.bridging += std::chrono::duration_cast<std::chrono::microseconds>(
+      Clock::now() - started);
+  ++metrics.bridgeCalls;
+  if (status != BridgeStatus::Ok) {
+    ++metrics.failures;
   }
-  return skyrim_remember_evaluate_appearance(engine, observer, data,
-                                             items.size(), faceVisible,
-                                             continuity, &result);
+  return status;
+}
+
+void GuardMemoryAdapter::ReportMetrics() {
+  const auto now = Clock::now();
+  if (now - lastMetrics < ObservationTuning::metricsInterval) {
+    return;
+  }
+  lastMetrics = now;
+  if (metrics.bridgeCalls == 0) {
+    return;
+  }
+  // captures tracking routine one-for-one is expected today: the Player is
+  // captured once per observer rather than once per pass.
+  SKSE::log::info(
+      "Memory adapter cost: routine={} transitions={} captures={} "
+      "captureUs={} bridgeCalls={} bridgeUs={} failures={} tracked={}",
+      metrics.routine, metrics.transitions, metrics.appearanceCaptures,
+      metrics.capturing.count(), metrics.bridgeCalls, metrics.bridging.count(),
+      metrics.failures, logState.size());
+  metrics = {};
 }
 
 bool GuardMemoryAdapter::RecognitionChanged(std::uint32_t observer,
@@ -96,10 +136,14 @@ void GuardMemoryAdapter::OnObserved(const NpcObservationContext &context,
   }
   if (trigger == NpcObservationService::Trigger::AppearanceChanged &&
       transitionActive) {
+    ++metrics.transitions;
     ObserveTransition(context, outcome);
+    ReportMetrics();
     return;
   }
+  ++metrics.routine;
   ObserveRoutine(context, outcome);
+  ReportMetrics();
 }
 
 void GuardMemoryAdapter::ObserveRoutine(const NpcObservationContext &context,
@@ -120,7 +164,7 @@ void GuardMemoryAdapter::ObserveRoutine(const NpcObservationContext &context,
   // Seeing an unchanged Player again is idempotent on the Rust side: the outfit
   // is only refreshed once its interval has really elapsed, so polling cannot
   // keep a known appearance eternally fresh.
-  const auto appearance = CapturePlayerAppearance();
+  const auto appearance = Capture();
   AppearanceResult result{};
   const auto status =
       Query(observer, appearance, false, true, *gameDays, result);
@@ -191,7 +235,7 @@ bool GuardMemoryAdapter::BeginAppearanceTransition(
   if (!sessionActive || !engine) {
     return false;
   }
-  auto current = CapturePlayerAppearance();
+  auto current = Capture();
   if (!lastPlayerAppearance) {
     // No baseline yet: adopt this one instead of inventing a transition.
     lastPlayerAppearance = std::move(current);

@@ -5,6 +5,7 @@
 #include "NpcObservationService.h"
 #include "RustBridge.h"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -42,22 +43,48 @@ public:
   void EndAppearanceTransition();
 
 private:
+  using Clock = std::chrono::steady_clock;
+
   struct ObserverLogState {
     bool recognized = false;
     bool known = false;
   };
 
-  BridgeStatus Query(std::uint32_t observer, const CapturedAppearance &appearance,
+  // What the memory half of one observation costs, aggregated per interval.
+  //
+  // The service already times this whole block as "reportUs"; this splits it
+  // into the part that reads the game and the part that crosses the bridge, so
+  // a regression names its own cause.
+  struct AdapterMetrics {
+    std::uint64_t routine = 0;
+    std::uint64_t transitions = 0;
+    std::uint64_t appearanceCaptures = 0;
+    std::uint64_t bridgeCalls = 0;
+    std::uint64_t failures = 0;
+    std::chrono::microseconds capturing{0};
+    std::chrono::microseconds bridging{0};
+  };
+
+  void ReportMetrics();
+
+  CapturedAppearance Capture();
+
+  BridgeStatus Query(std::uint32_t observer,
+                     const CapturedAppearance &appearance,
                      bool visualContinuity, bool learn, double gameDays,
-                     AppearanceResult &result) const;
+                     AppearanceResult &result);
 
   void ObserveRoutine(const NpcObservationContext &context,
                       const PerceptionOutcome &outcome);
+
   void ObserveTransition(const NpcObservationContext &context,
                          const PerceptionOutcome &outcome);
+
   bool RecognitionChanged(std::uint32_t observer, bool recognized);
 
   MemoryEngine *engine = nullptr;
+  AdapterMetrics metrics;
+  Clock::time_point lastMetrics{};
   std::optional<CapturedAppearance> lastPlayerAppearance;
   std::unordered_map<std::uint32_t, ObserverLogState> logState;
   CapturedAppearance transitionPrevious;
