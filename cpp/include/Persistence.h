@@ -9,8 +9,7 @@
 namespace SkyrimRemember::Persistence {
 
 consteval std::uint32_t MakeTag(char a, char b, char c, char d) {
-  return static_cast<std::uint32_t>(a) | (static_cast<std::uint32_t>(b) << 8U) |
-         (static_cast<std::uint32_t>(c) << 16U) |
+  return static_cast<std::uint32_t>(a) | (static_cast<std::uint32_t>(b) << 8U) | (static_cast<std::uint32_t>(c) << 16U) |
          (static_cast<std::uint32_t>(d) << 24U);
 }
 
@@ -34,16 +33,13 @@ enum class LoadOutcome {
 };
 
 // Translates an SKSE FormID resolution into the Rust resolver ABI.
-bool ResolveFormID(void *context, std::uint32_t oldFormID,
-                   std::uint32_t *newFormID) noexcept;
+bool ResolveFormID(void *context, std::uint32_t oldFormID, std::uint32_t *newFormID) noexcept;
 
 // Writes the engine's whole store into the active SKSE co-save record.
-bool Save(const MemoryEngine *engine,
-          SKSE::SerializationInterface *serialization);
+bool Save(const MemoryEngine *engine, SKSE::SerializationInterface *serialization);
 
 // Restores the engine from the active SKSE co-save, remapping every saved
 // FormID through the interface's own resolver.
-LoadOutcome Load(const MemoryEngine *engine,
-                 SKSE::SerializationInterface *serialization);
+LoadOutcome Load(const MemoryEngine *engine, SKSE::SerializationInterface *serialization);
 
 } // namespace SkyrimRemember::Persistence

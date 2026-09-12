@@ -33,9 +33,7 @@ public:
   void CaptureBaseline();
 
   // One NPC perceived the Player.
-  void OnObserved(const NpcObservationContext &context,
-                  const PerceptionOutcome &outcome,
-                  NpcObservationService::Trigger trigger);
+  void OnObserved(const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger);
 
   // The equipment batch settled on a final new outfit. Returns false when
   // nothing actually changed, in which case no sweep is worth running.
@@ -69,16 +67,12 @@ private:
 
   CapturedAppearance Capture();
 
-  BridgeStatus Query(std::uint32_t observer,
-                     const CapturedAppearance &appearance,
-                     bool visualContinuity, bool learn, double gameDays,
+  BridgeStatus Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
                      AppearanceResult &result);
 
-  void ObserveRoutine(const NpcObservationContext &context,
-                      const PerceptionOutcome &outcome);
+  void ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome);
 
-  void ObserveTransition(const NpcObservationContext &context,
-                         const PerceptionOutcome &outcome);
+  void ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome);
 
   bool RecognitionChanged(std::uint32_t observer, bool recognized);
 

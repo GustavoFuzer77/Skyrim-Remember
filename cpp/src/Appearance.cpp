@@ -16,10 +16,9 @@ CapturedAppearance MergeWornPieces(std::span<const WornPiece> pieces) {
       continue;
     }
     captured.faceVisible = captured.faceVisible && !CoversFace(visualMask);
-    const auto existing = std::ranges::find_if(
-        captured.items, [&piece](const AppearanceItem &item) {
-          return item.formId == piece.formId;
-        });
+    const auto existing = std::ranges::find_if(captured.items, [&piece](const AppearanceItem &item) {
+      return item.formId == piece.formId;
+    });
     if (existing != captured.items.end()) {
       existing->slotMask |= visualMask;
     } else {

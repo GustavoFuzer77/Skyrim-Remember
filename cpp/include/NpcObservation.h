@@ -13,14 +13,7 @@ namespace SkyrimRemember {
 
 // Why an NPC did or did not perceive the Player on one pass. Ordered from the
 // cheapest test to the most expensive, which is also the order they run in.
-enum class PerceptionVerdict : std::uint32_t {
-  Observed = 0,
-  NotAlive,
-  NotLoaded,
-  OutOfRange,
-  Undetected,
-  NoLineOfSight
-};
+enum class PerceptionVerdict : std::uint32_t { Observed = 0, NotAlive, NotLoaded, OutOfRange, Undetected, NoLineOfSight };
 
 const char *VerdictName(PerceptionVerdict verdict);
 
@@ -29,7 +22,9 @@ struct PerceptionOutcome {
   float distance = 0.0F;
   std::int32_t detectionLevel = 0;
 
-  bool Perceived() const { return verdict == PerceptionVerdict::Observed; }
+  bool Perceived() const {
+    return verdict == PerceptionVerdict::Observed;
+  }
 };
 
 // The one and only implementation of "can this NPC perceive the Player right

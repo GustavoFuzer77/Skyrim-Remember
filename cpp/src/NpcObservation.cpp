@@ -58,8 +58,7 @@ PerceptionOutcome PerceivePlayer(RE::Actor &actor, RE::PlayerCharacter &player) 
     return outcome;
   }
   outcome.distance = actor.GetPosition().GetDistance(player.GetPosition());
-  if (!std::isfinite(outcome.distance) ||
-      outcome.distance > ObservationTuning::maximumObservationDistance) {
+  if (!std::isfinite(outcome.distance) || outcome.distance > ObservationTuning::maximumObservationDistance) {
     outcome.verdict = PerceptionVerdict::OutOfRange;
     return outcome;
   }

@@ -44,7 +44,9 @@ public:
   // A menu closed; a batch deferred behind it may now be scheduled.
   void MenuClosed();
 
-  bool HasPendingChange() const { return state != State::Idle; }
+  bool HasPendingChange() const {
+    return state != State::Idle;
+  }
 
 private:
   enum class State { Idle, Deferred, Queued };

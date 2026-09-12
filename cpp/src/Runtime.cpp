@@ -94,7 +94,6 @@ public:
   }
 
 private:
-
   EquipmentBatch equipment;
   bool equipmentAttached = false;
   bool menuAttached = false;

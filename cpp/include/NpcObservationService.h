@@ -48,8 +48,7 @@ public:
   // watcher at once and ignores both the budget and the cooldown.
   enum class Trigger : std::uint32_t { Routine, AppearanceChanged };
 
-  using Observer = std::function<void(const NpcObservationContext &,
-                                      const PerceptionOutcome &, Trigger)>;
+  using Observer = std::function<void(const NpcObservationContext &, const PerceptionOutcome &, Trigger)>;
 
   void Configure(const SKSE::TaskInterface *taskInterface, Observer onObserved);
 
@@ -104,8 +103,7 @@ private:
   void RefreshPending();
   void ReportMetrics(TimePoint now);
   void PruneObservers(TimePoint now);
-  bool Examine(RE::Actor &actor, RE::PlayerCharacter &player, TimePoint now,
-               Trigger trigger, bool respectCooldown);
+  bool Examine(RE::Actor &actor, RE::PlayerCharacter &player, TimePoint now, Trigger trigger, bool respectCooldown);
 
   const SKSE::TaskInterface *tasks = nullptr;
   Observer observer;

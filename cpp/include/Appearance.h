@@ -29,17 +29,14 @@ inline constexpr std::uint32_t Decapitate = 1U << 21;     // kDecapitate
 // Bits that carry no visual meaning: the game uses them for decapitation
 // geometry, never for something an onlooker could describe. Note that bits 10
 // and 11 (kTail, kLongHair) are NOT technical and do take part in appearance.
-inline constexpr std::uint32_t technicalSlots =
-    BipedSlot::DecapitateHead | BipedSlot::Decapitate;
+inline constexpr std::uint32_t technicalSlots = BipedSlot::DecapitateHead | BipedSlot::Decapitate;
 
 static_assert(technicalSlots == 0x00300000U);
 
 // A piece hides the face when it takes the head slot outright, or when it
 // occupies hair and circlet together the way full helmets do.
 constexpr bool CoversFace(std::uint32_t slotMask) {
-  return (slotMask & BipedSlot::Head) != 0 ||
-         ((slotMask & BipedSlot::Hair) != 0 &&
-          (slotMask & BipedSlot::Circlet) != 0);
+  return (slotMask & BipedSlot::Head) != 0 || ((slotMask & BipedSlot::Hair) != 0 && (slotMask & BipedSlot::Circlet) != 0);
 }
 
 static_assert(CoversFace(BipedSlot::Head));

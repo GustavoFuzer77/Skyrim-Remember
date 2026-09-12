@@ -18,8 +18,7 @@ bool InitializeLogging() {
 
     *logDirectory /= "SkyrimRemember.log";
 
-    auto logger =
-        spdlog::basic_logger_mt("SkyrimRemember", logDirectory->string(), true);
+    auto logger = spdlog::basic_logger_mt("SkyrimRemember", logDirectory->string(), true);
 
     logger->set_level(spdlog::level::info);
     logger->flush_on(spdlog::level::info);
@@ -59,8 +58,7 @@ SKSEPluginLoad(const SKSE::LoadInterface *skse) {
     const auto actualAbiVersion = skyrim_remember_abi_version();
 
     if (actualAbiVersion != SkyrimRememberAbiVersion) {
-      SKSE::log::critical("Rust bridge ABI mismatch: expected {}, received {}",
-                          SkyrimRememberAbiVersion, actualAbiVersion);
+      SKSE::log::critical("Rust bridge ABI mismatch: expected {}, received {}", SkyrimRememberAbiVersion, actualAbiVersion);
       return false;
     }
 

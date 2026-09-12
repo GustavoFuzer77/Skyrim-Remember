@@ -117,8 +117,7 @@ extern "C" {
 using SkyrimRememberLogCallback = void (*)(const char *message) noexcept;
 
 // Returns true after the Rust core has initialized successfully.
-bool skyrim_remember_initialize(
-    SkyrimRememberLogCallback log_callback) noexcept;
+bool skyrim_remember_initialize(SkyrimRememberLogCallback log_callback) noexcept;
 
 // ABI version allows both sides to reject incompatible future bridges.
 std::uint32_t skyrim_remember_abi_version() noexcept;
@@ -129,48 +128,29 @@ MemoryEngine *skyrim_remember_create() noexcept;
 // No other call may be in flight when destroying the context.
 void skyrim_remember_destroy(MemoryEngine *engine) noexcept;
 
-BridgeStatus skyrim_remember_register(const MemoryEngine *engine,
-                                      std::uint32_t reference_form_id,
-                                      double game_days) noexcept;
+BridgeStatus skyrim_remember_register(const MemoryEngine *engine, std::uint32_t reference_form_id, double game_days) noexcept;
 
 // On errors output remains unchanged; querying does not create a memory.
-BridgeStatus skyrim_remember_get(const MemoryEngine *engine,
-                                 std::uint32_t reference_form_id,
-                                 double game_days,
-                                 MemorySnapshot *output) noexcept;
+BridgeStatus skyrim_remember_get(const MemoryEngine *engine, std::uint32_t reference_form_id, double game_days, MemorySnapshot *output) noexcept;
 
-BridgeStatus skyrim_remember_apply_delta(const MemoryEngine *engine,
-                                         std::uint32_t reference_form_id,
-                                         double game_days, MemoryDelta delta,
+BridgeStatus skyrim_remember_apply_delta(const MemoryEngine *engine, std::uint32_t reference_form_id, double game_days, MemoryDelta delta,
                                          MemorySnapshot *output) noexcept;
 
-BridgeStatus skyrim_remember_observe_appearance(
-    const MemoryEngine *engine, std::uint32_t reference_form_id,
-    double game_days, const AppearanceItem *items, std::size_t item_count,
-    std::uint32_t face_visible, std::uint32_t visual_continuity,
-    AppearanceResult *output) noexcept;
+BridgeStatus skyrim_remember_observe_appearance(const MemoryEngine *engine, std::uint32_t reference_form_id, double game_days, const AppearanceItem *items,
+                                                std::size_t item_count, std::uint32_t face_visible, std::uint32_t visual_continuity,
+                                                AppearanceResult *output) noexcept;
 
 // Pure recognition query: never creates, learns, or refreshes an appearance.
-BridgeStatus skyrim_remember_evaluate_appearance(
-    const MemoryEngine *engine, std::uint32_t reference_form_id,
-    const AppearanceItem *items, std::size_t item_count,
-    std::uint32_t face_visible, std::uint32_t visual_continuity,
-    AppearanceResult *output) noexcept;
+BridgeStatus skyrim_remember_evaluate_appearance(const MemoryEngine *engine, std::uint32_t reference_form_id, const AppearanceItem *items,
+                                                 std::size_t item_count, std::uint32_t face_visible, std::uint32_t visual_continuity,
+                                                 AppearanceResult *output) noexcept;
 
-BridgeStatus skyrim_remember_serialize(const MemoryEngine *engine,
-                                       std::uint8_t *output,
-                                       std::size_t capacity,
-                                       std::size_t *written) noexcept;
+BridgeStatus skyrim_remember_serialize(const MemoryEngine *engine, std::uint8_t *output, std::size_t capacity, std::size_t *written) noexcept;
 
-using FormIdResolver = bool (*)(void *context, std::uint32_t old_form_id,
-                                std::uint32_t *new_form_id) noexcept;
+using FormIdResolver = bool (*)(void *context, std::uint32_t old_form_id, std::uint32_t *new_form_id) noexcept;
 
-BridgeStatus skyrim_remember_deserialize(const MemoryEngine *engine,
-                                         const std::uint8_t *data,
-                                         std::size_t length,
-                                         FormIdResolver resolver,
-                                         void *resolver_context,
-                                         PersistenceStats *output) noexcept;
+BridgeStatus skyrim_remember_deserialize(const MemoryEngine *engine, const std::uint8_t *data, std::size_t length, FormIdResolver resolver,
+                                         void *resolver_context, PersistenceStats *output) noexcept;
 
 BridgeStatus skyrim_remember_clear(const MemoryEngine *engine) noexcept;
 }

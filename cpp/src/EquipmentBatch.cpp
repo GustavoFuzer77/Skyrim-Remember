@@ -11,8 +11,7 @@ bool ItemMenuIsOpen() {
 }
 } // namespace
 
-void EquipmentBatch::Configure(const SKSE::TaskInterface *taskInterface,
-                               Flush onFlush) {
+void EquipmentBatch::Configure(const SKSE::TaskInterface *taskInterface, Flush onFlush) {
   tasks = taskInterface;
   flush = std::move(onFlush);
 }
@@ -37,7 +36,7 @@ void EquipmentBatch::MenuClosed() {
 }
 
 void EquipmentBatch::Schedule() {
-  
+
   if (!tasks) {
     return;
   }
@@ -48,7 +47,7 @@ void EquipmentBatch::Schedule() {
   }
 
   state = State::Queued;
-  
+
   tasks->AddTask([this, scheduled = generation] {
     if (generation != scheduled) {
       // A Reset ran between scheduling and now; its state wins.

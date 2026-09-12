@@ -20,13 +20,11 @@ std::size_t ProfileIndex(NpcProfile profile) {
 using Microseconds = std::chrono::microseconds;
 
 Microseconds Since(std::chrono::steady_clock::time_point start) {
-  return std::chrono::duration_cast<Microseconds>(
-      std::chrono::steady_clock::now() - start);
+  return std::chrono::duration_cast<Microseconds>(std::chrono::steady_clock::now() - start);
 }
 } // namespace
 
-void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface,
-                                      Observer onObserved) {
+void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface, Observer onObserved) {
   tasks = taskInterface;
   observer = std::move(onObserved);
   const auto now = Clock::now();
@@ -62,9 +60,7 @@ void NpcObservationService::Start() {
     // have to wait out a whole interval.
     constexpr auto step = std::chrono::milliseconds{50};
     while (!stop.stop_requested()) {
-      for (auto waited = std::chrono::milliseconds::zero();
-           waited < ObservationTuning::scanInterval && !stop.stop_requested();
-           waited += step) {
+      for (auto waited = std::chrono::milliseconds::zero(); waited < ObservationTuning::scanInterval && !stop.stop_requested(); waited += step) {
         std::this_thread::sleep_for(step);
       }
       if (stop.stop_requested()) {
@@ -115,9 +111,7 @@ void NpcObservationService::RefreshPending() {
   metrics.highActors = pending.size();
 }
 
-bool NpcObservationService::Examine(RE::Actor &actor,
-                                    RE::PlayerCharacter &player, TimePoint now,
-                                    Trigger trigger, bool respectCooldown) {
+bool NpcObservationService::Examine(RE::Actor &actor, RE::PlayerCharacter &player, TimePoint now, Trigger trigger, bool respectCooldown) {
   ++metrics.examined;
   const auto classifyStarted = Clock::now();
   const auto profile = ClassifyNpc(actor);
@@ -132,8 +126,7 @@ bool NpcObservationService::Examine(RE::Actor &actor,
 
   const auto referenceFormId = actor.GetFormID();
   auto &state = observers[referenceFormId];
-  if (respectCooldown && state.lastExamined != TimePoint{} &&
-      now - state.lastExamined < ObservationTuning::observerCooldown) {
+  if (respectCooldown && state.lastExamined != TimePoint{} && now - state.lastExamined < ObservationTuning::observerCooldown) {
     ++metrics.cooledDown;
     // Cooled down still counts as budget: the lookup is what we are pacing.
     return true;
@@ -197,8 +190,12 @@ void NpcObservationService::RunSlice(TimePoint now) {
     ++metrics.slowSlices;
     SKSE::log::warn("Slow observation slice: durationUs={} highActors={} "
                     "examined={} enabled={} observed={} backlog={}",
-                    elapsed.count(), metrics.highActors, metrics.examined,
-                    metrics.enabled, metrics.observed, pending.size());
+                    elapsed.count(),
+                    metrics.highActors,
+                    metrics.examined,
+                    metrics.enabled,
+                    metrics.observed,
+                    pending.size());
   }
 }
 
@@ -216,13 +213,12 @@ void NpcObservationService::ScanNow(Trigger trigger) {
     }
     return RE::BSContainer::ForEachResult::kContinue;
   });
-  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-      Clock::now() - started);
+  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
   SKSE::log::info("Immediate observation sweep: trigger={} candidates={} "
                   "durationUs={}",
-                  trigger == Trigger::AppearanceChanged ? "appearanceChanged"
-                                                        : "routine",
-                  reached, duration.count());
+                  trigger == Trigger::AppearanceChanged ? "appearanceChanged" : "routine",
+                  reached,
+                  duration.count());
 }
 
 void NpcObservationService::PruneObservers(TimePoint now) {
@@ -240,11 +236,8 @@ void NpcObservationService::ReportMetrics(TimePoint now) {
   if (metrics.slices == 0) {
     return;
   }
-  const auto windowMs =
-      std::chrono::duration_cast<std::chrono::milliseconds>(now - reportedAt)
-          .count();
-  const auto averageUs =
-      static_cast<std::uint64_t>(metrics.duration.count()) / metrics.slices;
+  const auto windowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - reportedAt).count();
+  const auto averageUs = static_cast<std::uint64_t>(metrics.duration.count()) / metrics.slices;
   reportedAt = now;
 
   // Two aggregate lines per interval. Never one line per actor.
@@ -252,25 +245,35 @@ void NpcObservationService::ReportMetrics(TimePoint now) {
   // Cost first, because that is what a performance test reads. peakUs is the
   // number that matters: a spike is what a player feels, and it vanishes into
   // an average.
-  SKSE::log::info(
-      "Observation cost: windowMs={} tasks={} slices={} totalUs={} avgUs={} "
-      "peakUs={} slowSlices={} classifyUs={} perceiveUs={} reportUs={}",
-      windowMs, metrics.tasks, metrics.slices, metrics.duration.count(),
-      averageUs, metrics.peakSlice.count(), metrics.slowSlices,
-      metrics.classifying.count(), metrics.perceiving.count(),
-      metrics.reporting.count());
+  SKSE::log::info("Observation cost: windowMs={} tasks={} slices={} totalUs={} avgUs={} "
+                  "peakUs={} slowSlices={} classifyUs={} perceiveUs={} reportUs={}",
+                  windowMs,
+                  metrics.tasks,
+                  metrics.slices,
+                  metrics.duration.count(),
+                  averageUs,
+                  metrics.peakSlice.count(),
+                  metrics.slowSlices,
+                  metrics.classifying.count(),
+                  metrics.perceiving.count(),
+                  metrics.reporting.count());
 
-  SKSE::log::info(
-      "Observation work: highActors={} examined={} enabled={} cooledDown={} "
-      "detected={} observed={} backlog={} trackedObservers={} guard={} "
-      "follower={} citizen={} merchant={} generic={}",
-      metrics.highActors, metrics.examined, metrics.enabled,
-      metrics.cooledDown, metrics.detected, metrics.observed, metrics.backlog,
-      observers.size(), metrics.byProfile[ProfileIndex(NpcProfile::Guard)],
-      metrics.byProfile[ProfileIndex(NpcProfile::Follower)],
-      metrics.byProfile[ProfileIndex(NpcProfile::Citizen)],
-      metrics.byProfile[ProfileIndex(NpcProfile::Merchant)],
-      metrics.byProfile[ProfileIndex(NpcProfile::Generic)]);
+  SKSE::log::info("Observation work: highActors={} examined={} enabled={} cooledDown={} "
+                  "detected={} observed={} backlog={} trackedObservers={} guard={} "
+                  "follower={} citizen={} merchant={} generic={}",
+                  metrics.highActors,
+                  metrics.examined,
+                  metrics.enabled,
+                  metrics.cooledDown,
+                  metrics.detected,
+                  metrics.observed,
+                  metrics.backlog,
+                  observers.size(),
+                  metrics.byProfile[ProfileIndex(NpcProfile::Guard)],
+                  metrics.byProfile[ProfileIndex(NpcProfile::Follower)],
+                  metrics.byProfile[ProfileIndex(NpcProfile::Citizen)],
+                  metrics.byProfile[ProfileIndex(NpcProfile::Merchant)],
+                  metrics.byProfile[ProfileIndex(NpcProfile::Generic)]);
   metrics = {};
 }
 
