@@ -56,6 +56,10 @@ fn round_trip_is_deterministic_and_preserves_memories_and_appearance() {
     assert_eq!(loaded.get(a).unwrap()[Axis::Respect], 50.0);
     assert_eq!(loaded.get(b).unwrap()[Axis::Fear], 30.0);
     assert_eq!(loaded.get(a).unwrap().last_decay_game_days, 11.0);
+    assert_eq!(
+        loaded.get(a).unwrap().last_recognition_game_days,
+        Some(11.0)
+    );
     assert_eq!(loaded.known_appearances(a)[0].items[0].form_id, 0x1000);
 }
 
@@ -264,6 +268,28 @@ fn version_three_data_migrates_the_four_fixed_axes_into_their_slots() {
 }
 
 #[test]
+fn version_four_data_starts_without_a_familiarity_cooldown() {
+    let old = bincode::serialize(&PersistedStateV4 {
+        version: 4,
+        memories: vec![PersistedMemoryV4 {
+            reference_form_id: 10,
+            memory: NpcMemoryV4 {
+                axes: [0.0; AXIS_CAPACITY],
+                last_decay_game_days: 5.0,
+            },
+            appearances: Vec::new(),
+        }],
+    })
+    .unwrap();
+
+    let (loaded, stats) = deserialize_with(&old, Some).unwrap();
+    let memory = loaded.get(NpcId::new(10).unwrap()).unwrap();
+
+    assert_eq!(stats.loaded, 1);
+    assert_eq!(memory.last_recognition_game_days, None);
+}
+
+#[test]
 fn every_earlier_payload_version_still_loads() {
     for (bytes, label) in [
         (
@@ -300,6 +326,25 @@ fn every_earlier_payload_version_still_loads() {
             })
             .unwrap(),
             "v3",
+        ),
+        (
+            bincode::serialize(&PersistedStateV4 {
+                version: 4,
+                memories: vec![PersistedMemoryV4 {
+                    reference_form_id: 10,
+                    memory: NpcMemoryV4 {
+                        axes: {
+                            let mut axes = [0.0; AXIS_CAPACITY];
+                            axes[Axis::Fear.index()] = 25.0;
+                            axes
+                        },
+                        last_decay_game_days: 3.0,
+                    },
+                    appearances: Vec::new(),
+                }],
+            })
+            .unwrap(),
+            "v4",
         ),
     ] {
         let (loaded, stats) = deserialize_with(&bytes, Some)

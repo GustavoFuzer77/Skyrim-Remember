@@ -66,6 +66,11 @@ silhouette — before he will accept that it is you. A guard who knows you well
 gets there on about half that. Familiarity makes people easier to recognise,
 and harder to fool.
 
+So 70% is the starting threshold, not a value that changes arbitrarily. Seeing
+your uncovered face in sufficiently spaced encounters builds familiarity; the
+required outfit match then falls gradually, never below 50%. Repeated scan
+ticks do not farm familiarity, and a covered face does not build it.
+
 ### Changing clothes in front of someone does not fool them
 
 If a guard was watching you, recognised you, and kept watching while you

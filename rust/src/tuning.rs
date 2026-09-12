@@ -138,6 +138,14 @@ pub struct ObservationTuning {
     /// scan ran rather than when the NPC last saw something. Refreshing is an
     /// explicit rule here, not a side effect of how often the host asks.
     pub refresh_interval_game_days: f64,
+
+    /// Familiarity earned when the NPC gets a qualifying view of the Player's
+    /// face. Covered faces and visual continuity do not teach facial identity.
+    pub recognition_gain: f32,
+
+    /// Minimum game time between familiarity gains for one NPC. This is
+    /// deliberately longer than the scan cadence so polling cannot farm it.
+    pub recognition_interval_game_days: f64,
 }
 
 impl Default for ObservationTuning {
@@ -145,6 +153,9 @@ impl Default for ObservationTuning {
         Self {
             // One game hour.
             refresh_interval_game_days: 1.0 / 24.0,
+            recognition_gain: 5.0,
+            // Six game hours: twenty spaced encounters reach full familiarity.
+            recognition_interval_game_days: 6.0 / 24.0,
         }
     }
 }

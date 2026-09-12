@@ -101,72 +101,86 @@ impl MemoryStore {
         let capacity = self.tuning.limits.max_known_appearances;
         let weights = self.tuning.weights;
         let refresh_interval = self.tuning.observation.refresh_interval_game_days;
+        let recognition_interval = self.tuning.observation.recognition_interval_game_days;
+        let recognition_gain = self.tuning.observation.recognition_gain;
+        let reinforce_recognition = face_visible
+            && self
+                .memories
+                .get(&npc_id)?
+                .recognition_is_due(game_days, recognition_interval);
         let known = self.appearances.entry(npc_id).or_default();
-        if known.is_empty() {
+
+        let learned = if known.is_empty() {
             known.push(KnownAppearance {
                 items,
                 face_visible,
                 identity_known: observation.recognized,
                 last_seen_game_days: game_days,
             });
-            observation.learned = true;
-            observation.known_appearances = 1;
-            return Some(observation);
-        }
-
-        // Seeing the Player's face can link a previously anonymous outfit to
-        // the Player, but only when the clothing evidence is strong enough.
-        if face_visible {
-            for previous in known
-                .iter_mut()
-                .filter(|appearance| !appearance.identity_known)
-            {
-                if outfit_similarity(&previous.items, &items, &weights)
-                    >= observation.recognition_threshold
+            true
+        } else {
+            // Seeing the Player's face can link a previously anonymous outfit
+            // to the Player, but only when the clothing evidence is strong
+            // enough.
+            if face_visible {
+                for previous in known
+                    .iter_mut()
+                    .filter(|appearance| !appearance.identity_known)
                 {
+                    if outfit_similarity(&previous.items, &items, &weights)
+                        >= observation.recognition_threshold
+                    {
+                        previous.identity_known = true;
+                    }
+                }
+            }
+            let exact_index = known.iter().position(|previous| {
+                previous.face_visible == face_visible && previous.items == items
+            });
+            if observation.recognized {
+                if let Some(index) = exact_index {
+                    // Seeing a known outfit again is not news. Only move the
+                    // freshness stamp once the refresh interval has really
+                    // passed, so repeated polling is idempotent.
+                    let previous = &mut known[index];
+                    if game_days - previous.last_seen_game_days >= refresh_interval {
+                        previous.last_seen_game_days = game_days;
+                    }
                     previous.identity_known = true;
+                    false
+                } else {
+                    if known.len() >= capacity {
+                        let oldest = known
+                            .iter()
+                            .enumerate()
+                            .min_by(|(_, left), (_, right)| {
+                                left.last_seen_game_days
+                                    .total_cmp(&right.last_seen_game_days)
+                            })
+                            .map(|(index, _)| index)
+                            .unwrap_or(0);
+                        known.remove(oldest);
+                    }
+                    known.push(KnownAppearance {
+                        items,
+                        face_visible,
+                        identity_known: true,
+                        last_seen_game_days: game_days,
+                    });
+                    true
                 }
-            }
-        }
-        let exact_index = known
-            .iter()
-            .position(|previous| previous.face_visible == face_visible && previous.items == items);
-        let mut learned = false;
-        if observation.recognized {
-            if let Some(index) = exact_index {
-                // Seeing a known outfit again is not news. Only move the
-                // freshness stamp once the refresh interval has really passed,
-                // so repeated polling of an unchanged Player is idempotent.
-                let previous = &mut known[index];
-                if game_days - previous.last_seen_game_days >= refresh_interval {
-                    previous.last_seen_game_days = game_days;
-                }
-                previous.identity_known = true;
             } else {
-                if known.len() >= capacity {
-                    let oldest = known
-                        .iter()
-                        .enumerate()
-                        .min_by(|(_, left), (_, right)| {
-                            left.last_seen_game_days
-                                .total_cmp(&right.last_seen_game_days)
-                        })
-                        .map(|(index, _)| index)
-                        .unwrap_or(0);
-                    known.remove(oldest);
-                }
-                known.push(KnownAppearance {
-                    items,
-                    face_visible,
-                    identity_known: true,
-                    last_seen_game_days: game_days,
-                });
-                learned = true;
+                false
             }
-        }
+        };
 
         observation.learned = learned;
         observation.known_appearances = u32::try_from(known.len()).unwrap_or(u32::MAX);
+        if reinforce_recognition {
+            self.memories
+                .get_mut(&npc_id)?
+                .reinforce_recognition(game_days, recognition_gain);
+        }
         Some(observation)
     }
 

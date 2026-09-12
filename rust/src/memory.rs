@@ -101,6 +101,7 @@ impl NpcId {
 pub struct NpcMemory {
     pub axes: [f32; AXIS_CAPACITY],
     pub last_decay_game_days: f64,
+    pub last_recognition_game_days: Option<f64>,
 }
 
 impl Index<Axis> for NpcMemory {
@@ -148,12 +149,27 @@ impl NpcMemory {
         self[axis] = bounded_add(self[axis], delta);
     }
 
+    pub fn recognition_is_due(&self, current_game_days: f64, interval_game_days: f64) -> bool {
+        self.last_recognition_game_days
+            .map(|previous| current_game_days - previous >= interval_game_days)
+            .unwrap_or(true)
+    }
+
+    pub fn reinforce_recognition(&mut self, game_days: f64, gain: f32) {
+        self.add_axis(Axis::Recognition, gain);
+        self.last_recognition_game_days = Some(game_days);
+    }
+
     pub fn is_valid(&self) -> bool {
         self.axes
             .iter()
             .all(|value| value.is_finite() && (0.0..=MAX_MEMORY_VALUE).contains(value))
             && self.last_decay_game_days.is_finite()
             && self.last_decay_game_days >= 0.0
+            && self
+                .last_recognition_game_days
+                .map(|value| value.is_finite() && value >= 0.0)
+                .unwrap_or(true)
     }
 }
 

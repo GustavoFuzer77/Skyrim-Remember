@@ -313,6 +313,7 @@ fn registration_preserves_values_and_actors_are_isolated() {
                 (Axis::Respect, 44.0),
             ]),
             last_decay_game_days: 10.0,
+            last_recognition_game_days: None,
         };
         assert_eq!(
             skyrim_remember_register(context.0, 123, 10.0),

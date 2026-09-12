@@ -4,7 +4,7 @@ use crate::tuning::Tuning;
 use crate::{AppearanceItem, KnownAppearance};
 use serde::{Deserialize, Serialize};
 
-pub const PERSISTENCE_VERSION: u32 = 4;
+pub const PERSISTENCE_VERSION: u32 = 5;
 
 /// The four fixed axes every payload before v4 stored.
 ///
@@ -59,6 +59,37 @@ struct PersistedMemory {
     reference_form_id: u32,
     memory: NpcMemory,
     appearances: Vec<KnownAppearance>,
+}
+
+/// v4 introduced named axis slots but predates the timestamp that rate-limits
+/// familiarity reinforcement.
+#[derive(Serialize, Deserialize)]
+struct PersistedStateV4 {
+    version: u32,
+    memories: Vec<PersistedMemoryV4>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistedMemoryV4 {
+    reference_form_id: u32,
+    memory: NpcMemoryV4,
+    appearances: Vec<KnownAppearance>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct NpcMemoryV4 {
+    axes: [f32; crate::memory::AXIS_CAPACITY],
+    last_decay_game_days: f64,
+}
+
+impl From<NpcMemoryV4> for NpcMemory {
+    fn from(old: NpcMemoryV4) -> Self {
+        Self {
+            axes: old.axes,
+            last_decay_game_days: old.last_decay_game_days,
+            last_recognition_game_days: None,
+        }
+    }
 }
 
 /// v3 already had per-appearance `identity_known`; only the memory shape
@@ -200,6 +231,22 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, PersistenceError> {
     match u32::from_le_bytes(version_bytes) {
         PERSISTENCE_VERSION => {
             bincode::deserialize(bytes).map_err(|_| PersistenceError::InvalidData)
+        }
+        4 => {
+            let old: PersistedStateV4 =
+                bincode::deserialize(bytes).map_err(|_| PersistenceError::InvalidData)?;
+            Ok(PersistedState {
+                version: PERSISTENCE_VERSION,
+                memories: old
+                    .memories
+                    .into_iter()
+                    .map(|entry| PersistedMemory {
+                        reference_form_id: entry.reference_form_id,
+                        memory: entry.memory.into(),
+                        appearances: entry.appearances,
+                    })
+                    .collect(),
+            })
         }
         3 => {
             let old: PersistedStateV3 =

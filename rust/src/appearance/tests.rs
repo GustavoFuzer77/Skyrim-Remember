@@ -260,6 +260,47 @@ fn recognition_reduces_the_threshold_from_seventy_to_fifty_percent() {
 }
 
 #[test]
+fn spaced_visible_face_observations_build_familiarity_without_polling_farming_it() {
+    let mut store = MemoryStore::new();
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+    let outfit = vec![appearance_item(10, 1 << 2)];
+
+    let first = store
+        .observe_appearance(guard, outfit.clone(), true, false, 1.0)
+        .unwrap();
+    assert!((first.recognition_threshold - 0.70).abs() < 0.0001);
+    assert_eq!(store.get(guard).unwrap()[Axis::Recognition], 5.0);
+
+    let polled = store
+        .observe_appearance(guard, outfit.clone(), true, false, 1.1)
+        .unwrap();
+    assert!((polled.recognition_threshold - 0.69).abs() < 0.0001);
+    assert_eq!(store.get(guard).unwrap()[Axis::Recognition], 5.0);
+
+    store
+        .observe_appearance(guard, outfit, true, false, 1.25)
+        .unwrap();
+    assert_eq!(store.get(guard).unwrap()[Axis::Recognition], 10.0);
+}
+
+#[test]
+fn a_covered_face_never_builds_facial_familiarity() {
+    let mut store = MemoryStore::new();
+    let guard = NpcId::new(123).unwrap();
+    store.get_or_create_at(guard, 1.0);
+
+    store
+        .observe_appearance(guard, vec![appearance_item(10, 1 << 2)], false, false, 1.0)
+        .unwrap();
+    store
+        .observe_appearance(guard, vec![appearance_item(10, 1 << 2)], false, true, 2.0)
+        .unwrap();
+
+    assert_eq!(store.get(guard).unwrap()[Axis::Recognition], 0.0);
+}
+
+#[test]
 fn the_oldest_outfit_is_evicted_at_the_configured_capacity() {
     let tuning = Tuning {
         limits: Limits {

@@ -222,7 +222,7 @@ int main() {
   CHECK(skyrim_remember_register(engine.get(), 123, 10.0) == BridgeStatus::Ok);
   CHECK(skyrim_remember_get(engine.get(), 123, 10.0, &snapshot) == BridgeStatus::Ok);
 
-  CHECK(Slot(snapshot, Axis::Recognition) == 0.0f && Slot(snapshot, Axis::Suspicion) == 0.0f && Slot(snapshot, Axis::Fear) == 30.0f &&
+  CHECK(Slot(snapshot, Axis::Recognition) == 5.0f && Slot(snapshot, Axis::Suspicion) == 0.0f && Slot(snapshot, Axis::Fear) == 30.0f &&
         Slot(snapshot, Axis::Respect) == 50.0f);
 
   CHECK(skyrim_remember_get(engine.get(), 456, 10.0, &snapshot) == BridgeStatus::NotFound);
