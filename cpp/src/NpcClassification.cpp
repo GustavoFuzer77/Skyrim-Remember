@@ -64,15 +64,15 @@ std::optional<NpcProfile> ClassifyNpc(RE::Actor &actor) {
     return NpcProfile::Follower;
   }
 
+  if (actor.GetVendorFaction()) {
+    return NpcProfile::Merchant;
+  }
+
   // Hostility is a state, not a role. An actor currently fighting the Player is
   // parked in Generic rather than being called a Citizen.
   if (player && actor.IsHostileToActor(player)) {
     return NpcProfile::Generic;
   }
-
-  // TODO(merchant): a vendor-faction test belongs here, ahead of the Citizen
-  // fallback. It needs a faction walk too expensive for the scan as written, so
-  // Merchant is currently a category with no classifier.
 
   return NpcProfile::Citizen;
 }
