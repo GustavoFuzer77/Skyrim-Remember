@@ -48,9 +48,13 @@ public:
   // watcher at once and ignores both the budget and the cooldown.
   enum class Trigger : std::uint32_t { Routine, AppearanceChanged };
 
-  using Observer = std::function<void(const NpcObservationContext &, const PerceptionOutcome &, Trigger)>;
+  using PassStarted = std::function<void(Trigger)>;
+  // Actor is valid only for the duration of the callback and must not be
+  // retained. It is supplied so reaction adapters can act without resolving a
+  // FormID that the scan has already resolved safely.
+  using Observer = std::function<void(RE::Actor &, const NpcObservationContext &, const PerceptionOutcome &, Trigger)>;
 
-  void Configure(const SKSE::TaskInterface *taskInterface, Observer onObserved);
+  void Configure(const SKSE::TaskInterface *taskInterface, PassStarted onPassStarted, Observer onObserved);
 
   // Gameplay is running and observations may be reported.
   void SetActive(bool value);
@@ -68,7 +72,7 @@ private:
   using TimePoint = Clock::time_point;
 
   struct ObserverState {
-    TimePoint lastExamined{};
+    TimePoint lastExamined;
   };
 
   struct ScanMetrics {
@@ -106,15 +110,16 @@ private:
   bool Examine(RE::Actor &actor, RE::PlayerCharacter &player, TimePoint now, Trigger trigger, bool respectCooldown);
 
   const SKSE::TaskInterface *tasks = nullptr;
+  PassStarted passStarted;
   Observer observer;
   // Handles, never Actor*: a handle that has gone stale simply resolves to
   // null on the next slice instead of dangling.
   std::vector<RE::ActorHandle> pending;
   std::unordered_map<std::uint32_t, ObserverState> observers;
   ScanMetrics metrics;
-  TimePoint lastScan{};
-  TimePoint lastMetrics{};
-  TimePoint reportedAt{};
+  TimePoint lastScan;
+  TimePoint lastMetrics;
+  TimePoint reportedAt;
   // Read by the timer thread, written by the main thread.
   std::atomic<bool> active{false};
   // Declared last on purpose: its destructor stops and joins the thread before

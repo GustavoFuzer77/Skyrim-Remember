@@ -2,7 +2,6 @@
 
 #include "Appearance.h"
 #include "NpcObservation.h"
-#include "NpcObservationService.h"
 #include "RustBridge.h"
 
 #include <chrono>
@@ -12,12 +11,21 @@
 
 namespace SkyrimRemember {
 
-// Turns a perceived observation into a call on the Rust memory core.
+// The identity verdict shared by every NPC profile. Profile-specific reaction
+// adapters consume this result without needing to know how appearance capture
+// or recognition works.
+struct IdentityObservation {
+  AppearanceResult appearance;
+  MemorySnapshot memory;
+  bool newObserver = false;
+};
+
+// Learns and evaluates what the Player looks like for every observing NPC.
 //
-// This is the only place that talks to the bridge, and it is deliberately
-// guard-shaped: when Follower or Citizen grow behaviour, they get an adapter of
-// their own rather than an extra branch in here.
-class GuardMemoryAdapter {
+// This is the only gameplay-side component that talks to the appearance bridge.
+// It deliberately knows nothing about guards, followers, citizens, merchants,
+// or what any of them should do with the recognition result.
+class AppearanceMemoryService {
 public:
   void Configure(MemoryEngine *memoryEngine);
 
@@ -32,8 +40,13 @@ public:
   // "before" to compare against.
   void CaptureBaseline();
 
-  // One NPC perceived the Player.
-  void OnObserved(const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger);
+  // Invalidates the lazy routine capture. The first NPC perceived during this
+  // pass captures the Player once; every other observer shares that snapshot.
+  void BeginObservationPass();
+
+  // One NPC perceived the Player. Returns no result when the session or bridge
+  // is unavailable.
+  std::optional<IdentityObservation> Observe(const NpcObservationContext &context, const PerceptionOutcome &outcome, bool appearanceChanged);
 
   // The equipment batch settled on a final new outfit. Returns false when
   // nothing actually changed, in which case no sweep is worth running.
@@ -54,6 +67,7 @@ private:
   // into the part that reads the game and the part that crosses the bridge, so
   // a regression names its own cause.
   struct AdapterMetrics {
+    std::uint64_t passes = 0;
     std::uint64_t routine = 0;
     std::uint64_t transitions = 0;
     std::uint64_t appearanceCaptures = 0;
@@ -67,19 +81,24 @@ private:
 
   CapturedAppearance Capture();
 
+  BridgeStatus Register(std::uint32_t observer, double gameDays);
+
   BridgeStatus Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
                      AppearanceResult &result);
 
-  void ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome);
+  BridgeStatus ReadMemory(std::uint32_t observer, double gameDays, MemorySnapshot &result);
 
-  void ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome);
+  std::optional<IdentityObservation> ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome);
+
+  std::optional<IdentityObservation> ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome);
 
   bool RecognitionChanged(std::uint32_t observer, bool recognized);
 
   MemoryEngine *engine = nullptr;
   AdapterMetrics metrics;
-  Clock::time_point lastMetrics{};
+  Clock::time_point lastMetrics;
   std::optional<CapturedAppearance> lastPlayerAppearance;
+  std::optional<CapturedAppearance> routineAppearance;
   std::unordered_map<std::uint32_t, ObserverLogState> logState;
   CapturedAppearance transitionPrevious;
   CapturedAppearance transitionCurrent;

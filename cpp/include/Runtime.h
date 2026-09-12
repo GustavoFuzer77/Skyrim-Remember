@@ -6,7 +6,7 @@ namespace SkyrimRemember {
 //
 // Replaces the old GuardProbe: the lifecycle lives here, classification in
 // NpcProfile, perception in NpcObservation, discovery in
-// NpcObservationService, and the Rust calls in GuardMemoryAdapter.
+// NpcObservationService, and universal recognition in AppearanceMemoryService.
 bool RegisterRuntime();
 
 } // namespace SkyrimRemember

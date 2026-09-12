@@ -112,13 +112,15 @@ you.
 
 **Not built yet**
 
-Right now the guards remember, and that is all they do. There is no dialogue,
+Right now NPCs remember, and that is all they do. There is no dialogue,
 no crime or bounty behaviour, no gossip between NPCs, no shopkeeper reactions,
 and followers do not use any of it. Those come later — this release is the
 foundation they will be built on.
 
-Only Whiterun guards take part at the moment. Followers, citizens and merchants
-are recognised as categories by the plugin but do nothing yet.
+All nearby NPC profiles can form appearance memories. Only Whiterun guards have
+a reaction adapter at the moment, and it remains intentionally inert until the
+first gameplay reaction is implemented. Followers, citizens and merchants are
+recognised as categories but do not react yet.
 
 ## Requirements
 

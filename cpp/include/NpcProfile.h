@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace RE {
 class Actor;
@@ -24,14 +25,13 @@ const char *ProfileName(NpcProfile profile);
 // Returns false when the game data the classifier needs is missing.
 bool InitializeClassification();
 
-// Places one actor. Cheap, data-driven, and free of side effects: it must not
-// create memory, capture appearance, or reach the Rust core.
-NpcProfile ClassifyNpc(RE::Actor &actor);
+// Places one humanoid NPC, or returns no profile for the Player and creatures.
+// Cheap, data-driven, and free of side effects: it must not create memory,
+// capture appearance, or reach the Rust core.
+std::optional<NpcProfile> ClassifyNpc(RE::Actor &actor);
 
-// The single switch deciding which profiles take part in observation.
-//
-// Enabling a profile here is all it should take to bring it into the scan; the
-// actor discovery must never test for a specific profile itself.
+// The single switch deciding which profiles receive universal appearance
+// observations. Reaction support is routed independently after recognition.
 bool IsProfileEnabled(NpcProfile profile);
 
 } // namespace SkyrimRemember

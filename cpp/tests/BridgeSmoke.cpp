@@ -125,12 +125,12 @@ int main() {
     using SkyrimRemember::npcProfileCount;
     using SkyrimRemember::ProfileName;
 
-    // Only Guard takes part in observation at this stage.
+    // Appearance memory is universal even before every profile has reactions.
     CHECK(IsProfileEnabled(NpcProfile::Guard));
-    CHECK(!IsProfileEnabled(NpcProfile::Follower));
-    CHECK(!IsProfileEnabled(NpcProfile::Citizen));
-    CHECK(!IsProfileEnabled(NpcProfile::Merchant));
-    CHECK(!IsProfileEnabled(NpcProfile::Generic));
+    CHECK(IsProfileEnabled(NpcProfile::Follower));
+    CHECK(IsProfileEnabled(NpcProfile::Citizen));
+    CHECK(IsProfileEnabled(NpcProfile::Merchant));
+    CHECK(IsProfileEnabled(NpcProfile::Generic));
 
     // Every profile is nameable and every enum value stays inside the range the
     // metrics array is sized by.

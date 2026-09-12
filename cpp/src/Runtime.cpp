@@ -1,10 +1,11 @@
 #include "Runtime.h"
+#include "AppearanceMemoryService.h"
 #include "EquipmentBatch.h"
-#include "GuardMemoryAdapter.h"
 #include "NpcObservationService.h"
 #include "NpcProfile.h"
 #include "ObservationTuning.h"
 #include "Persistence.h"
+#include "ProfileReactionRouter.h"
 #include "RustBridge.h"
 
 #include <RE/M/MenuOpenCloseEvent.h>
@@ -22,8 +23,17 @@ namespace SkyrimRemember {
 
 namespace {
 
-// Owns the session: the Rust engine, the scan, the guard adapter (and futures adapters) and the
-// equipment batch. Everything below runs on Skyrim's main thread.
+void LogCallbackFailure(const char *message) noexcept {
+  try {
+    SKSE::log::error("{}", message);
+  } catch (...) {
+    OutputDebugString("Skyrim Remember: lifecycle callback failed\n");
+  }
+}
+
+// Owns the session: the Rust engine, universal appearance memory, profile
+// reactions, the scan and the equipment batch. Everything below runs on
+// Skyrim's main thread.
 class Runtime final : public RE::BSTEventSink<RE::TESEquipEvent>, public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
 public:
   static Runtime &Get() {
@@ -47,7 +57,7 @@ public:
       return false;
     }
 
-    adapter.Configure(engine.get());
+    appearanceMemory.Configure(engine.get());
 
     // Runtime is a function-local static, so it outlives every task the batch
     // and the observation service schedule.
@@ -55,9 +65,17 @@ public:
       this->FlushEquipmentBatch(batchedEvents);
     });
 
-    observations.Configure(tasks, [this](const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
-      this->adapter.OnObserved(context, outcome, trigger);
-    });
+    observations.Configure(
+        tasks,
+        [this](NpcObservationService::Trigger) {
+          this->appearanceMemory.BeginObservationPass();
+        },
+        [this](RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
+          const auto identity = this->appearanceMemory.Observe(context, outcome, trigger == NpcObservationService::Trigger::AppearanceChanged);
+          if (identity) {
+            this->reactions.OnObserved(actor, context, outcome, *identity);
+          }
+        });
 
     serialization->SetUniqueID(Persistence::SerializationID);
     serialization->SetSaveCallback(OnSave);
@@ -104,13 +122,8 @@ private:
   using EnginePtr = std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>; // <tipo do pointer, tipo do deleter>
   EnginePtr engine{nullptr, skyrim_remember_destroy};
 
-#pragma region adapters
-
-  GuardMemoryAdapter adapter;
-
-  // add others adapters here (citizens, generics, followers, etc)
-
-#pragma endregion
+  AppearanceMemoryService appearanceMemory;
+  ProfileReactionRouter reactions;
 
   // Declared last on purpose: its destructor stops and joins the timer thread
   // before the adapters and the engine its tasks reach into are destroyed.
@@ -118,7 +131,7 @@ private:
 
   void SetPlaying(bool value) {
     playing = value;
-    adapter.SetSessionActive(value);
+    appearanceMemory.SetSessionActive(value);
     observations.SetActive(value);
   }
 
@@ -127,12 +140,12 @@ private:
     if (!playing) {
       return;
     }
-    // An outfit change is a discrete event: every guard watching right now must
+    // An outfit change is a discrete event: every NPC watching right now must
     // see it, so this one sweep ignores the budget and the cooldown.
-    if (adapter.BeginAppearanceTransition(batchedEvents)) {
+    if (appearanceMemory.BeginAppearanceTransition(batchedEvents)) {
       observations.ScanNow(NpcObservationService::Trigger::AppearanceChanged);
     }
-    adapter.EndAppearanceTransition();
+    appearanceMemory.EndAppearanceTransition();
   }
 
   static void Disable(const char *reason) {
@@ -153,7 +166,7 @@ private:
       }
       Persistence::Save(runtime.engine.get(), serialization);
     } catch (...) {
-      SKSE::log::error("Persistence save callback failed with an exception");
+      LogCallbackFailure("Persistence save callback failed with an exception");
     }
   }
 
@@ -161,7 +174,7 @@ private:
     try {
       Get().Load(serialization);
     } catch (...) {
-      SKSE::log::error("Persistence load callback failed with an exception");
+      LogCallbackFailure("Persistence load callback failed with an exception");
     }
   }
 
@@ -169,7 +182,7 @@ private:
     try {
       Get().PrepareForLoad("serialization-revert");
     } catch (...) {
-      SKSE::log::error("Persistence revert callback failed with an exception");
+      LogCallbackFailure("Persistence revert callback failed with an exception");
     }
   }
 
@@ -196,14 +209,14 @@ private:
       Reset("new-game");
       SetPlaying(sessionReady);
       if (playing) {
-        adapter.CaptureBaseline();
+        appearanceMemory.CaptureBaseline();
       }
       break;
     case SKSE::MessagingInterface::kPostLoadGame:
       // SKSE encodes the load success bool in data itself, not a bool*.
       SetPlaying(sessionReady && message.data != nullptr);
       if (playing) {
-        adapter.CaptureBaseline();
+        appearanceMemory.CaptureBaseline();
       }
       break;
     default:
@@ -263,7 +276,7 @@ private:
     sessionReady = false;
     equipment.Reset();
     observations.Reset();
-    adapter.Reset();
+    appearanceMemory.Reset();
     SKSE::log::info("Memory load preparation: reason={}", reason);
   }
 

@@ -24,8 +24,9 @@ Microseconds Since(std::chrono::steady_clock::time_point start) {
 }
 } // namespace
 
-void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface, Observer onObserved) {
+void NpcObservationService::Configure(const SKSE::TaskInterface *taskInterface, PassStarted onPassStarted, Observer onObserved) {
   tasks = taskInterface;
+  passStarted = std::move(onPassStarted);
   observer = std::move(onObserved);
   const auto now = Clock::now();
   lastScan = now;
@@ -54,7 +55,7 @@ void NpcObservationService::Start() {
   if (!tasks || timer.joinable()) {
     return;
   }
-  timer = std::jthread([this](std::stop_token stop) {
+  timer = std::jthread([this](const std::stop_token &stop) {
     // Nothing in this loop touches a Skyrim object. It sleeps, and it hands a
     // task to the main thread. Waking in small steps so that shutdown does not
     // have to wait out a whole interval.
@@ -116,8 +117,11 @@ bool NpcObservationService::Examine(RE::Actor &actor, RE::PlayerCharacter &playe
   const auto classifyStarted = Clock::now();
   const auto profile = ClassifyNpc(actor);
   metrics.classifying += Since(classifyStarted);
-  ++metrics.byProfile[ProfileIndex(profile)];
-  if (!IsProfileEnabled(profile)) {
+  if (!profile) {
+    return false;
+  }
+  ++metrics.byProfile[ProfileIndex(*profile)];
+  if (!IsProfileEnabled(*profile)) {
     // Classified and counted, but inert: a disabled profile must not spend the
     // budget that pays for detection and line of sight.
     return false;
@@ -150,7 +154,7 @@ bool NpcObservationService::Examine(RE::Actor &actor, RE::PlayerCharacter &playe
     // Everything downstream: reading the context, capturing the Player's
     // appearance, and the calls across the Rust bridge.
     const auto reportStarted = Clock::now();
-    observer(DescribeObservation(actor, profile), outcome, trigger);
+    observer(actor, DescribeObservation(actor, *profile), outcome, trigger);
     metrics.reporting += Since(reportStarted);
   }
   return true;
@@ -165,6 +169,9 @@ void NpcObservationService::RunSlice(TimePoint now) {
   ++metrics.slices;
   if (pending.empty()) {
     RefreshPending();
+  }
+  if (passStarted) {
+    passStarted(Trigger::Routine);
   }
 
   auto budget = ObservationTuning::actorBudgetPerScan;
@@ -207,6 +214,9 @@ void NpcObservationService::ScanNow(Trigger trigger) {
   }
   const auto started = Clock::now();
   std::size_t reached = 0;
+  if (passStarted) {
+    passStarted(trigger);
+  }
   processLists->ForEachHighActor([&](RE::Actor &actor) {
     if (Examine(actor, *player, started, trigger, false)) {
       ++reached;

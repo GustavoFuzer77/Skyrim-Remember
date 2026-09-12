@@ -1,4 +1,4 @@
-#include "GuardMemoryAdapter.h"
+#include "AppearanceMemoryService.h"
 #include "ObservationTuning.h"
 #include "PlayerAppearance.h"
 
@@ -51,16 +51,17 @@ void LogAppearance(const char *event, const NpcObservationContext &context, cons
 }
 } // namespace
 
-void GuardMemoryAdapter::Configure(MemoryEngine *memoryEngine) {
+void AppearanceMemoryService::Configure(MemoryEngine *memoryEngine) {
   engine = memoryEngine;
 }
 
-void GuardMemoryAdapter::SetSessionActive(bool value) {
+void AppearanceMemoryService::SetSessionActive(bool value) {
   sessionActive = value;
 }
 
-void GuardMemoryAdapter::Reset() {
+void AppearanceMemoryService::Reset() {
   lastPlayerAppearance.reset();
+  routineAppearance.reset();
   logState.clear();
   metrics = {};
   lastMetrics = Clock::now();
@@ -68,11 +69,16 @@ void GuardMemoryAdapter::Reset() {
   transitionEvents = 0;
 }
 
-void GuardMemoryAdapter::CaptureBaseline() {
+void AppearanceMemoryService::CaptureBaseline() {
   lastPlayerAppearance = Capture();
 }
 
-CapturedAppearance GuardMemoryAdapter::Capture() {
+void AppearanceMemoryService::BeginObservationPass() {
+  routineAppearance.reset();
+  ++metrics.passes;
+}
+
+CapturedAppearance AppearanceMemoryService::Capture() {
   const auto started = Clock::now();
   auto captured = CapturePlayerAppearance();
   metrics.capturing += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
@@ -80,8 +86,19 @@ CapturedAppearance GuardMemoryAdapter::Capture() {
   return captured;
 }
 
-BridgeStatus GuardMemoryAdapter::Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
-                                       AppearanceResult &result) {
+BridgeStatus AppearanceMemoryService::Register(std::uint32_t observer, double gameDays) {
+  const auto started = Clock::now();
+  const auto status = skyrim_remember_register(engine, observer, gameDays);
+  metrics.bridging += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
+  ++metrics.bridgeCalls;
+  if (status != BridgeStatus::Created && status != BridgeStatus::Ok) {
+    ++metrics.failures;
+  }
+  return status;
+}
+
+BridgeStatus AppearanceMemoryService::Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
+                                            AppearanceResult &result) {
   const auto &items = appearance.items;
   const auto *data = items.empty() ? nullptr : items.data();
   const auto faceVisible = appearance.faceVisible ? 1U : 0U;
@@ -97,7 +114,18 @@ BridgeStatus GuardMemoryAdapter::Query(std::uint32_t observer, const CapturedApp
   return status;
 }
 
-void GuardMemoryAdapter::ReportMetrics() {
+BridgeStatus AppearanceMemoryService::ReadMemory(std::uint32_t observer, double gameDays, MemorySnapshot &result) {
+  const auto started = Clock::now();
+  const auto status = skyrim_remember_get(engine, observer, gameDays, &result);
+  metrics.bridging += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
+  ++metrics.bridgeCalls;
+  if (status != BridgeStatus::Ok) {
+    ++metrics.failures;
+  }
+  return status;
+}
+
+void AppearanceMemoryService::ReportMetrics() {
   const auto now = Clock::now();
   if (now - lastMetrics < ObservationTuning::metricsInterval) {
     return;
@@ -106,10 +134,12 @@ void GuardMemoryAdapter::ReportMetrics() {
   if (metrics.bridgeCalls == 0) {
     return;
   }
-  // captures tracking routine one-for-one is expected today: the Player is
-  // captured once per observer rather than once per pass.
-  SKSE::log::info("Memory adapter cost: routine={} transitions={} captures={} "
+  // A routine pass captures lazily and at most once, however many NPCs observe
+  // the Player during it. Transitions reuse the pair captured by the equipment
+  // batch and do not add one capture per observer either.
+  SKSE::log::info("Appearance memory cost: passes={} routine={} transitions={} captures={} "
                   "captureUs={} bridgeCalls={} bridgeUs={} failures={} tracked={}",
+                  metrics.passes,
                   metrics.routine,
                   metrics.transitions,
                   metrics.appearanceCaptures,
@@ -121,7 +151,7 @@ void GuardMemoryAdapter::ReportMetrics() {
   metrics = {};
 }
 
-bool GuardMemoryAdapter::RecognitionChanged(std::uint32_t observer, bool recognized) {
+bool AppearanceMemoryService::RecognitionChanged(std::uint32_t observer, bool recognized) {
   auto &state = logState[observer];
   const auto changed = !state.known || state.recognized != recognized;
   state.known = true;
@@ -129,42 +159,46 @@ bool GuardMemoryAdapter::RecognitionChanged(std::uint32_t observer, bool recogni
   return changed;
 }
 
-void GuardMemoryAdapter::OnObserved(const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
+std::optional<IdentityObservation> AppearanceMemoryService::Observe(const NpcObservationContext &context, const PerceptionOutcome &outcome,
+                                                                    bool appearanceChanged) {
   if (!sessionActive || !engine) {
-    return;
+    return std::nullopt;
   }
-  if (trigger == NpcObservationService::Trigger::AppearanceChanged && transitionActive) {
+  if (appearanceChanged && transitionActive) {
     ++metrics.transitions;
-    ObserveTransition(context, outcome);
+    auto observation = ObserveTransition(context, outcome);
     ReportMetrics();
-    return;
+    return observation;
   }
   ++metrics.routine;
-  ObserveRoutine(context, outcome);
+  auto observation = ObserveRoutine(context, outcome);
   ReportMetrics();
+  return observation;
 }
 
-void GuardMemoryAdapter::ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
+std::optional<IdentityObservation> AppearanceMemoryService::ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
   const auto gameDays = CurrentGameDays();
   if (!gameDays) {
-    return;
+    return std::nullopt;
   }
   const auto observer = context.referenceFormId;
-  const auto registered = skyrim_remember_register(engine, observer, *gameDays);
+  const auto registered = Register(observer, *gameDays);
   if (registered != BridgeStatus::Created && registered != BridgeStatus::Ok) {
     SKSE::log::error("Observer registration failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(registered));
-    return;
+    return std::nullopt;
   }
 
   // Seeing an unchanged Player again is idempotent on the Rust side: the outfit
   // is only refreshed once its interval has really elapsed, so polling cannot
   // keep a known appearance eternally fresh.
-  const auto appearance = Capture();
+  if (!routineAppearance) {
+    routineAppearance = Capture();
+  }
   AppearanceResult result{};
-  const auto status = Query(observer, appearance, false, true, *gameDays, result);
+  const auto status = Query(observer, *routineAppearance, false, true, *gameDays, result);
   if (status != BridgeStatus::Ok) {
     SKSE::log::error("Observation failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(status));
-    return;
+    return std::nullopt;
   }
 
   // Log the events that mean something, not every tick of the scan.
@@ -172,30 +206,37 @@ void GuardMemoryAdapter::ObserveRoutine(const NpcObservationContext &context, co
   if (registered == BridgeStatus::Created || result.learned != 0 || recognitionChanged) {
     LogAppearance("Observation", context, outcome, result);
   }
+  MemorySnapshot memory{};
+  const auto memoryStatus = ReadMemory(observer, *gameDays, memory);
+  if (memoryStatus != BridgeStatus::Ok) {
+    SKSE::log::error("Observer memory read failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(memoryStatus));
+    return std::nullopt;
+  }
+  return IdentityObservation{result, memory, registered == BridgeStatus::Created};
 }
 
-void GuardMemoryAdapter::ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
+std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
   const auto gameDays = CurrentGameDays();
   if (!gameDays) {
-    return;
+    return std::nullopt;
   }
   const auto observer = context.referenceFormId;
-  const auto registered = skyrim_remember_register(engine, observer, *gameDays);
+  const auto registered = Register(observer, *gameDays);
   if (registered != BridgeStatus::Created && registered != BridgeStatus::Ok) {
     SKSE::log::error("Transition observer registration failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(registered));
-    return;
+    return std::nullopt;
   }
 
-  // Did this guard recognize the Player a moment ago, before the change? A pure
+  // Did this NPC recognize the Player a moment ago, before the change? A pure
   // query: it must not learn or refresh anything.
   AppearanceResult before{};
   auto status = Query(observer, transitionPrevious, false, false, *gameDays, before);
   if (status != BridgeStatus::Ok) {
     SKSE::log::error("Previous appearance evaluation failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(status));
-    return;
+    return std::nullopt;
   }
 
-  // A guard that was watching a recognized Player keeps the identity across the
+  // An NPC watching a recognized Player keeps the identity across the
   // change, so the new outfit is learned as the Player's.
   AppearanceResult after{};
   status = Query(observer, transitionCurrent, before.recognized != 0, true, *gameDays, after);
@@ -204,7 +245,7 @@ void GuardMemoryAdapter::ObserveTransition(const NpcObservationContext &context,
                      "status={}",
                      observer,
                      static_cast<std::uint32_t>(status));
-    return;
+    return std::nullopt;
   }
 
   RecognitionChanged(observer, after.recognized != 0);
@@ -214,9 +255,16 @@ void GuardMemoryAdapter::ObserveTransition(const NpcObservationContext &context,
                   transitionEvents,
                   before.recognized != 0);
   LogAppearance("Appearance transition result", context, outcome, after);
+  MemorySnapshot memory{};
+  const auto memoryStatus = ReadMemory(observer, *gameDays, memory);
+  if (memoryStatus != BridgeStatus::Ok) {
+    SKSE::log::error("Transition memory read failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(memoryStatus));
+    return std::nullopt;
+  }
+  return IdentityObservation{after, memory, registered == BridgeStatus::Created};
 }
 
-bool GuardMemoryAdapter::BeginAppearanceTransition(std::uint64_t batchedEvents) {
+bool AppearanceMemoryService::BeginAppearanceTransition(std::uint64_t batchedEvents) {
   if (!sessionActive || !engine) {
     return false;
   }
@@ -239,7 +287,7 @@ bool GuardMemoryAdapter::BeginAppearanceTransition(std::uint64_t batchedEvents) 
   return true;
 }
 
-void GuardMemoryAdapter::EndAppearanceTransition() {
+void AppearanceMemoryService::EndAppearanceTransition() {
   transitionActive = false;
   transitionEvents = 0;
   transitionPrevious = {};

@@ -85,20 +85,23 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
     SOURCES
         cpp/include/Appearance.h
+        cpp/include/AppearanceMemoryService.h
         cpp/include/Defines.h
         cpp/include/EquipmentBatch.h
-        cpp/include/GuardMemoryAdapter.h
+        cpp/include/GuardReactionAdapter.h
         cpp/include/NpcObservation.h
         cpp/include/NpcObservationService.h
         cpp/include/NpcProfile.h
         cpp/include/ObservationTuning.h
         cpp/include/Persistence.h
         cpp/include/PlayerAppearance.h
+        cpp/include/ProfileReactionRouter.h
         cpp/include/Runtime.h
         cpp/include/RustBridge.h
         cpp/src/Appearance.cpp
+        cpp/src/AppearanceMemoryService.cpp
         cpp/src/EquipmentBatch.cpp
-        cpp/src/GuardMemoryAdapter.cpp
+        cpp/src/GuardReactionAdapter.cpp
         cpp/src/NpcClassification.cpp
         cpp/src/NpcObservation.cpp
         cpp/src/NpcObservationService.cpp
@@ -106,6 +109,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/src/Persistence.cpp
         cpp/src/Plugin.cpp
         cpp/src/PlayerAppearance.cpp
+        cpp/src/ProfileReactionRouter.cpp
         cpp/src/Runtime.cpp
 )
 

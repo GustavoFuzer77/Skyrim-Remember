@@ -25,16 +25,13 @@ const char *ProfileName(NpcProfile profile) {
 bool IsProfileEnabled(NpcProfile profile) {
   switch (profile) {
   case NpcProfile::Guard:
-    return true;
-  // Classified, counted in the diagnostics, and otherwise inert: these profiles
-  // must not create memory, call the Rust core, capture appearance, or consume
-  // the observation budget until they have behaviour of their own. Flipping one
-  // of these to true is all it should take to bring it into the scan.
   case NpcProfile::Follower:
   case NpcProfile::Citizen:
   case NpcProfile::Merchant:
   case NpcProfile::Generic:
-    return false;
+    // Appearance memory belongs to every NPC. Profiles only decide which
+    // reaction adapter consumes the universal recognition result afterwards.
+    return true;
   }
   return false;
 }
