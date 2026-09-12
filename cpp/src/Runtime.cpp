@@ -142,8 +142,15 @@ private:
     }
     // An outfit change is a discrete event: every NPC watching right now must
     // see it, so this one sweep ignores the budget and the cooldown.
-    if (appearanceMemory.BeginAppearanceTransition(batchedEvents)) {
+    if (!appearanceMemory.BeginAppearanceTransition(batchedEvents)) {
+      appearanceMemory.EndAppearanceTransition();
+      return;
+    }
+    try {
       observations.ScanNow(NpcObservationService::Trigger::AppearanceChanged);
+    } catch (...) {
+      appearanceMemory.EndAppearanceTransition();
+      throw;
     }
     appearanceMemory.EndAppearanceTransition();
   }

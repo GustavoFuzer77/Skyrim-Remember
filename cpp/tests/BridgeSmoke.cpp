@@ -53,10 +53,8 @@ using SkyrimRemember::WornPiece;
 
 constexpr std::uint32_t bodySlot = 1U << 2;
 constexpr std::uint32_t handsSlot = 1U << 3;
-} // namespace
 
-// true entry poiny
-int main() {
+int RunSmokeTests() {
 
   CHECK(skyrim_remember_abi_version() == SkyrimRememberAbiVersion);
 
@@ -236,4 +234,16 @@ int main() {
   CHECK(skyrim_remember_register(engine.get(), 123, 10.0) == BridgeStatus::Created);
 
   std::puts("C++/Rust bridge smoke test passed");
+  return 0;
+}
+
+} // namespace
+
+int main() noexcept {
+  try {
+    return RunSmokeTests();
+  } catch (...) {
+    std::fputs("C++/Rust bridge smoke test escaped with an exception\n", stderr);
+    return 1;
+  }
 }
