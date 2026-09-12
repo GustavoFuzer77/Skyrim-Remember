@@ -16,7 +16,6 @@ namespace SkyrimRemember {
 // or recognition works.
 struct IdentityObservation {
   AppearanceResult appearance;
-  MemorySnapshot memory;
   bool newObserver = false;
 };
 
@@ -85,8 +84,6 @@ private:
 
   BridgeStatus Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
                      AppearanceResult &result);
-
-  BridgeStatus ReadMemory(std::uint32_t observer, double gameDays, MemorySnapshot &result);
 
   std::optional<IdentityObservation> ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome);
 

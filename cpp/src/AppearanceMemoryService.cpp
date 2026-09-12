@@ -114,17 +114,6 @@ BridgeStatus AppearanceMemoryService::Query(std::uint32_t observer, const Captur
   return status;
 }
 
-BridgeStatus AppearanceMemoryService::ReadMemory(std::uint32_t observer, double gameDays, MemorySnapshot &result) {
-  const auto started = Clock::now();
-  const auto status = skyrim_remember_get(engine, observer, gameDays, &result);
-  metrics.bridging += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
-  ++metrics.bridgeCalls;
-  if (status != BridgeStatus::Ok) {
-    ++metrics.failures;
-  }
-  return status;
-}
-
 void AppearanceMemoryService::ReportMetrics() {
   const auto now = Clock::now();
   if (now - lastMetrics < ObservationTuning::metricsInterval) {
@@ -206,13 +195,7 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveRoutine(const
   if (registered == BridgeStatus::Created || result.learned != 0 || recognitionChanged) {
     LogAppearance("Observation", context, outcome, result);
   }
-  MemorySnapshot memory{};
-  const auto memoryStatus = ReadMemory(observer, *gameDays, memory);
-  if (memoryStatus != BridgeStatus::Ok) {
-    SKSE::log::error("Observer memory read failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(memoryStatus));
-    return std::nullopt;
-  }
-  return IdentityObservation{result, memory, registered == BridgeStatus::Created};
+  return IdentityObservation{result, registered == BridgeStatus::Created};
 }
 
 std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
@@ -255,13 +238,7 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(co
                   transitionEvents,
                   before.recognized != 0);
   LogAppearance("Appearance transition result", context, outcome, after);
-  MemorySnapshot memory{};
-  const auto memoryStatus = ReadMemory(observer, *gameDays, memory);
-  if (memoryStatus != BridgeStatus::Ok) {
-    SKSE::log::error("Transition memory read failed: ref={:08X} status={}", observer, static_cast<std::uint32_t>(memoryStatus));
-    return std::nullopt;
-  }
-  return IdentityObservation{after, memory, registered == BridgeStatus::Created};
+  return IdentityObservation{after, registered == BridgeStatus::Created};
 }
 
 bool AppearanceMemoryService::BeginAppearanceTransition(std::uint64_t batchedEvents) {
