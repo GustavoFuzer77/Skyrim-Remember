@@ -13,7 +13,7 @@
 // change.
 struct MemoryEngine;
 
-inline constexpr std::uint32_t SkyrimRememberAbiVersion = 8;
+inline constexpr std::uint32_t SkyrimRememberAbiVersion = 9;
 
 // How many axis slots every memory carries. Deliberately larger than the number
 // of axes named below: the spare slots are what let a new axis be named without
@@ -88,6 +88,36 @@ struct AppearanceResult {
   std::uint32_t knownAppearances;
 };
 
+// Hard cap on the keywords passed with one impression, mirroring
+// MAX_WORN_KEYWORDS in rust/src/rules.rs.
+inline constexpr std::size_t SkyrimRememberMaxWornKeywords = 512;
+
+// What one outfit did to one NPC's axes.
+struct ImpressionResult {
+  // The level each slot was raised to; indexed with AxisSlot(Axis::...).
+  float targets[SkyrimRememberAxisCapacity];
+  // One bit per slot that rose noticeably: 1 << AxisSlot(axis).
+  std::uint32_t raisedAxes;
+  std::uint32_t matchedRules;
+};
+
+enum class RuleReferenceKind : std::uint32_t { Keyword = 0, Form = 1 };
+
+// One keyword or Form a rule file mentions. The name — a keyword EditorID or a
+// plugin file name — is copied into a separate buffer and is not NUL-terminated.
+struct RuleReferenceInfo {
+  RuleReferenceKind kind;
+  // Local FormID inside the plugin for a Form; zero for a keyword.
+  std::uint32_t localFormId;
+  std::uint32_t nameLength;
+};
+
+struct RulesSummary {
+  std::uint32_t impressions;
+  std::uint32_t references;
+  std::uint32_t boundReferences;
+};
+
 static_assert(std::is_standard_layout_v<MemorySnapshot>);
 static_assert(sizeof(MemorySnapshot) == 72 && alignof(MemorySnapshot) == 8);
 static_assert(offsetof(MemorySnapshot, axes) == 0);
@@ -111,6 +141,12 @@ static_assert(offsetof(AppearanceResult, recognized) == 16);
 static_assert(offsetof(AppearanceResult, linkedByContinuity) == 20);
 static_assert(offsetof(AppearanceResult, knownAppearances) == 36);
 static_assert(sizeof(BridgeStatus) == 4);
+static_assert(sizeof(ImpressionResult) == 72 && alignof(ImpressionResult) == 4);
+static_assert(offsetof(ImpressionResult, raisedAxes) == 64);
+static_assert(offsetof(ImpressionResult, matchedRules) == 68);
+static_assert(sizeof(RuleReferenceInfo) == 12);
+static_assert(offsetof(RuleReferenceInfo, nameLength) == 8);
+static_assert(sizeof(RulesSummary) == 12);
 
 extern "C" {
 // Callbacks must not throw or retain the message pointer.
@@ -153,4 +189,27 @@ BridgeStatus skyrim_remember_deserialize(const MemoryEngine *engine, const std::
                                          void *resolver_context, PersistenceStats *output) noexcept;
 
 BridgeStatus skyrim_remember_clear(const MemoryEngine *engine) noexcept;
+
+// Adds one JSON rule file. InvalidData rejects the whole file and, when an error
+// buffer is given, writes a NUL-terminated (possibly truncated) reason.
+BridgeStatus skyrim_remember_load_rules(const MemoryEngine *engine, const std::uint8_t *data, std::size_t length, std::uint8_t *error,
+                                        std::size_t error_capacity) noexcept;
+
+BridgeStatus skyrim_remember_rules_summary(const MemoryEngine *engine, RulesSummary *output) noexcept;
+
+// NotFound past the last reference. BufferTooSmall still fills output, so the
+// caller can size the name buffer from nameLength and ask again.
+BridgeStatus skyrim_remember_rule_reference(const MemoryEngine *engine, std::uint32_t index, RuleReferenceInfo *output, std::uint8_t *name,
+                                            std::size_t name_capacity) noexcept;
+
+// Records the runtime FormID a reference resolved to; zero marks it unresolved.
+BridgeStatus skyrim_remember_bind_rule_reference(const MemoryEngine *engine, std::uint32_t index, std::uint32_t runtime_form_id) noexcept;
+
+// Raises one NPC's axes to what the worn items and keywords imply for its
+// profile. Never lowers anything. Call only for an NPC that recognized the
+// Player: the outfit of a stranger it could not identify is not held against
+// the Player.
+BridgeStatus skyrim_remember_observe_impression(const MemoryEngine *engine, std::uint32_t reference_form_id, double game_days, std::uint32_t profile,
+                                                const AppearanceItem *items, std::size_t item_count, const std::uint32_t *keywords, std::size_t keyword_count,
+                                                ImpressionResult *output) noexcept;
 }

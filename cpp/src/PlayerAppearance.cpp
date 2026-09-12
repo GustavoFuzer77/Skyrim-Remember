@@ -1,10 +1,13 @@
 #include "PlayerAppearance.h"
 
 #include <RE/B/BGSBipedObjectForm.h>
+#include <RE/B/BGSKeyword.h>
 #include <RE/P/PlayerCharacter.h>
 #include <RE/T/TESObjectARMO.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace SkyrimRemember {
@@ -37,6 +40,8 @@ CapturedAppearance CapturePlayerAppearance() {
 
   std::vector<WornPiece> worn;
   worn.reserve(bipedSlotCount);
+  std::vector<std::uint32_t> keywords;
+  const RE::TESObjectARMO *previous = nullptr;
   for (std::uint32_t bit = 0; bit < bipedSlotCount; ++bit) {
     const auto slotMask = std::uint32_t{1} << bit;
     const auto slot = static_cast<RE::BGSBipedObjectForm::BipedObjectSlot>(slotMask);
@@ -45,8 +50,26 @@ CapturedAppearance CapturePlayerAppearance() {
       continue;
     }
     worn.push_back({armor->GetFormID(), static_cast<std::uint32_t>(armor->GetSlotMask())});
+    // A piece spanning several slots is reported once per slot. Skipping the
+    // adjacent repeats is only a shortcut; the sort below removes every duplicate.
+    if (armor != previous) {
+      for (const auto *keyword : armor->GetKeywords()) {
+        if (keyword) {
+          keywords.push_back(keyword->GetFormID());
+        }
+      }
+      previous = armor;
+    }
   }
-  return MergeWornPieces(worn);
+  auto captured = MergeWornPieces(worn);
+  std::ranges::sort(keywords);
+  const auto duplicates = std::ranges::unique(keywords);
+  keywords.erase(duplicates.begin(), duplicates.end());
+  if (keywords.size() > SkyrimRememberMaxWornKeywords) {
+    keywords.resize(SkyrimRememberMaxWornKeywords);
+  }
+  captured.keywords = std::move(keywords);
+  return captured;
 }
 
 } // namespace SkyrimRemember

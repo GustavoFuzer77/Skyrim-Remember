@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -54,6 +55,12 @@ using SkyrimRemember::WornPiece;
 
 constexpr std::uint32_t bodySlot = 1U << 2;
 constexpr std::uint32_t handsSlot = 1U << 3;
+
+using Context = std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>;
+
+const std::uint8_t *AsBytes(std::string_view text) {
+  return static_cast<const std::uint8_t *>(static_cast<const void *>(text.data()));
+}
 
 int RunSmokeTests() {
 
@@ -232,8 +239,6 @@ int RunSmokeTests() {
 
   CHECK(logged);
 
-  using Context = std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>;
-
   Context engine(skyrim_remember_create(), skyrim_remember_destroy);
 
   CHECK(engine);
@@ -317,6 +322,60 @@ int RunSmokeTests() {
   CHECK(skyrim_remember_get(engine.get(), 123, 10.0, &snapshot) == BridgeStatus::NotFound);
 
   CHECK(skyrim_remember_register(engine.get(), 123, 10.0) == BridgeStatus::Created);
+
+  // Impression rules, driven exactly as ImpressionRules.cpp drives them: load,
+  // list references, bind the ones the game resolves, then observe.
+  {
+    Context rulesEngine(skyrim_remember_create(), skyrim_remember_destroy);
+    CHECK(rulesEngine);
+
+    constexpr std::string_view broken = R"({ "temperaments": { "guard": { "banditry": { "anger": 1 } } } })";
+    std::array<std::uint8_t, 128> reason{};
+    CHECK(skyrim_remember_load_rules(rulesEngine.get(), AsBytes(broken), broken.size(), reason.data(), reason.size()) == BridgeStatus::InvalidData);
+    CHECK(std::strstr(static_cast<const char *>(static_cast<void *>(reason.data())), "unknown axis") != nullptr);
+
+    constexpr std::string_view rules = R"({
+      "impressions": [
+        { "forms": ["0x06F393~Skyrim.esm"], "projects": { "banditry": 40 } },
+        { "keywords": ["ArmorMaterialHide"], "projects": { "banditry": 15 } }
+      ],
+      "temperaments": { "guard": { "banditry": { "suspicion": 1.0 } } }
+    })";
+    CHECK(skyrim_remember_load_rules(rulesEngine.get(), AsBytes(rules), rules.size(), nullptr, 0) == BridgeStatus::Ok);
+
+    RulesSummary summary{};
+    CHECK(skyrim_remember_rules_summary(rulesEngine.get(), &summary) == BridgeStatus::Ok);
+    CHECK(summary.impressions == 2 && summary.references == 2 && summary.boundReferences == 0);
+
+    RuleReferenceInfo info{};
+    std::array<std::uint8_t, 32> name{};
+    CHECK(skyrim_remember_rule_reference(rulesEngine.get(), 1, &info, name.data(), name.size()) == BridgeStatus::Ok);
+    CHECK(info.kind == RuleReferenceKind::Keyword && info.nameLength == 17);
+    CHECK(std::memcmp(name.data(), "ArmorMaterialHide", 17) == 0);
+
+    constexpr std::uint32_t hideKeyword = 0x0001BBBB;
+    CHECK(skyrim_remember_bind_rule_reference(rulesEngine.get(), 1, hideKeyword) == BridgeStatus::Ok);
+    CHECK(skyrim_remember_register(rulesEngine.get(), 123, 10.0) == BridgeStatus::Created);
+
+    const AppearanceItem hideCuirass[] = {{0x13911, bodySlot}};
+    const std::uint32_t keywords[] = {hideKeyword};
+    ImpressionResult impression{};
+    constexpr auto guard = static_cast<std::uint32_t>(SkyrimRemember::NpcProfile::Guard);
+    CHECK(skyrim_remember_observe_impression(rulesEngine.get(), 123, 10.0, guard, hideCuirass, 1, keywords, 1, &impression) == BridgeStatus::Ok);
+    CHECK(impression.raisedAxes == (1U << AxisSlot(Axis::Suspicion)) && impression.matchedRules == 1);
+    CHECK(impression.targets[AxisSlot(Axis::Suspicion)] == 15.0f);
+
+    // Worn again on the next scan: the level holds, nothing is reported twice.
+    CHECK(skyrim_remember_observe_impression(rulesEngine.get(), 123, 10.0, guard, hideCuirass, 1, keywords, 1, &impression) == BridgeStatus::Ok);
+    CHECK(impression.raisedAxes == 0);
+    CHECK(skyrim_remember_get(rulesEngine.get(), 123, 10.0, &snapshot) == BridgeStatus::Ok);
+    CHECK(Slot(snapshot, Axis::Suspicion) == 15.0f);
+
+    constexpr auto follower = static_cast<std::uint32_t>(SkyrimRemember::NpcProfile::Follower);
+    CHECK(skyrim_remember_observe_impression(rulesEngine.get(), 123, 10.0, follower, hideCuirass, 1, keywords, 1, &impression) == BridgeStatus::Ok);
+    CHECK(impression.targets[AxisSlot(Axis::Suspicion)] == 0.0f);
+    CHECK(skyrim_remember_observe_impression(rulesEngine.get(), 123, 10.0, 99, hideCuirass, 1, keywords, 1, &impression) == BridgeStatus::InvalidArgument);
+  }
 
   std::puts("C++/Rust bridge smoke test passed");
   return 0;

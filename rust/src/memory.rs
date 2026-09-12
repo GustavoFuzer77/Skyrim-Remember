@@ -5,6 +5,7 @@
 //! lives in [`crate::tuning`].
 
 use crate::appearance::{normalize_items, KnownAppearance};
+use crate::rules::Rules;
 use crate::tuning::{DecayHalfLives, Tuning, MAX_MEMORY_VALUE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -193,6 +194,9 @@ pub struct MemoryStore {
     pub(crate) memories: HashMap<NpcId, NpcMemory>,
     pub(crate) appearances: HashMap<NpcId, Vec<KnownAppearance>>,
     pub(crate) tuning: Tuning,
+    /// Loaded once from the game's rule files. Belongs to the session, not to a
+    /// save: clearing or restoring memories leaves it alone.
+    pub(crate) rules: Rules,
 }
 
 impl MemoryStore {

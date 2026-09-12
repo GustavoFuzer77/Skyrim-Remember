@@ -70,6 +70,161 @@ fn abi_layout_matches_cpp_contract() {
         36
     );
     assert_eq!(std::mem::size_of::<BridgeStatus>(), 4);
+    assert_eq!(std::mem::size_of::<ImpressionResult>(), 72);
+    assert_eq!(std::mem::align_of::<ImpressionResult>(), 4);
+    assert_eq!(std::mem::offset_of!(ImpressionResult, raised_axes), 64);
+    assert_eq!(std::mem::offset_of!(ImpressionResult, matched_rules), 68);
+    assert_eq!(std::mem::size_of::<RuleReferenceInfo>(), 12);
+    assert_eq!(std::mem::offset_of!(RuleReferenceInfo, name_length), 8);
+    assert_eq!(std::mem::size_of::<RulesSummary>(), 12);
+}
+
+#[test]
+fn rules_ffi_loads_lists_binds_and_raises_suspicion() {
+    let context = Context::new();
+    let json = br#"{
+      "impressions": [
+        { "forms": ["0x06F393~Skyrim.esm"], "projects": { "banditry": 40 } },
+        { "keywords": ["ArmorMaterialHide"], "projects": { "banditry": 15 } }
+      ],
+      "temperaments": { "guard": { "banditry": { "suspicion": 1.0 } } }
+    }"#;
+    let mut summary = RulesSummary::default();
+    let mut info = RuleReferenceInfo::default();
+    let mut name = [0_u8; 32];
+    let mut tiny = [0_u8; 2];
+    let mut result = ImpressionResult::default();
+    let items = [AppearanceItem {
+        form_id: 0x0006_F393,
+        slot_mask: 1 << 2,
+    }];
+    // SAFETY: context, buffers, and outputs are live and exclusively owned.
+    unsafe {
+        assert_eq!(
+            skyrim_remember_load_rules(context.0, json.as_ptr(), json.len(), ptr::null_mut(), 0),
+            BridgeStatus::Ok
+        );
+        assert_eq!(
+            skyrim_remember_rules_summary(context.0, &mut summary),
+            BridgeStatus::Ok
+        );
+        assert_eq!(
+            summary,
+            RulesSummary {
+                impressions: 2,
+                references: 2,
+                bound_references: 0,
+            }
+        );
+
+        assert_eq!(
+            skyrim_remember_rule_reference(context.0, 0, &mut info, tiny.as_mut_ptr(), tiny.len()),
+            BridgeStatus::BufferTooSmall
+        );
+        assert_eq!(info.name_length, 10);
+        assert_eq!(
+            skyrim_remember_rule_reference(context.0, 0, &mut info, name.as_mut_ptr(), name.len()),
+            BridgeStatus::Ok
+        );
+        assert_eq!(info.kind, RULE_REFERENCE_FORM);
+        assert_eq!(info.local_form_id, 0x0006_F393);
+        assert_eq!(&name[..10], b"Skyrim.esm");
+        assert_eq!(
+            skyrim_remember_rule_reference(context.0, 1, &mut info, name.as_mut_ptr(), name.len()),
+            BridgeStatus::Ok
+        );
+        assert_eq!(info.kind, RULE_REFERENCE_KEYWORD);
+        assert_eq!(&name[..17], b"ArmorMaterialHide");
+        assert_eq!(
+            skyrim_remember_rule_reference(context.0, 2, &mut info, name.as_mut_ptr(), name.len()),
+            BridgeStatus::NotFound
+        );
+
+        assert_eq!(
+            skyrim_remember_bind_rule_reference(context.0, 0, 0x0006_F393),
+            BridgeStatus::Ok
+        );
+        assert_eq!(
+            skyrim_remember_bind_rule_reference(context.0, 9, 1),
+            BridgeStatus::NotFound
+        );
+
+        assert_eq!(
+            skyrim_remember_observe_impression(
+                context.0,
+                123,
+                1.0,
+                0,
+                items.as_ptr(),
+                items.len(),
+                ptr::null(),
+                0,
+                &mut result
+            ),
+            BridgeStatus::NotFound
+        );
+        assert_eq!(
+            skyrim_remember_register(context.0, 123, 1.0),
+            BridgeStatus::Created
+        );
+        assert_eq!(
+            skyrim_remember_observe_impression(
+                context.0,
+                123,
+                1.0,
+                5,
+                items.as_ptr(),
+                items.len(),
+                ptr::null(),
+                0,
+                &mut result
+            ),
+            BridgeStatus::InvalidArgument
+        );
+        assert_eq!(
+            skyrim_remember_observe_impression(
+                context.0,
+                123,
+                1.0,
+                0,
+                items.as_ptr(),
+                items.len(),
+                ptr::null(),
+                0,
+                &mut result
+            ),
+            BridgeStatus::Ok
+        );
+    }
+    assert_eq!(result.raised_axes, 1 << Axis::Suspicion.index());
+    assert_eq!(result.targets[Axis::Suspicion.index()], 40.0);
+    assert_eq!(result.matched_rules, 1);
+}
+
+#[test]
+fn a_rejected_rule_file_reports_a_truncated_nul_terminated_reason() {
+    let context = Context::new();
+    let json = br#"{ "temperaments": { "guard": { "banditry": { "anger": 1 } } } }"#;
+    let mut error = [0xFF_u8; 24];
+    // SAFETY: context and buffers are live and exclusively owned.
+    let status = unsafe {
+        skyrim_remember_load_rules(
+            context.0,
+            json.as_ptr(),
+            json.len(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, BridgeStatus::InvalidData);
+    assert_eq!(error[23], 0);
+    assert!(std::str::from_utf8(&error[..23])
+        .unwrap()
+        .starts_with("temperaments.guard"));
+    // SAFETY: a null data pointer is rejected before it is read.
+    let status =
+        unsafe { skyrim_remember_load_rules(context.0, ptr::null(), 4, ptr::null_mut(), 0) };
+    assert_eq!(status, BridgeStatus::InvalidArgument);
 }
 
 #[test]

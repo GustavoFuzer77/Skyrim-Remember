@@ -5,11 +5,40 @@
 #include <RE/C/Calendar.h>
 #include <SKSE/SKSE.h>
 
+#include <array>
 #include <cmath>
+#include <format>
+#include <string>
 #include <utility>
 
 namespace SkyrimRemember {
 namespace {
+constexpr std::array allAxes = {Axis::Recognition, Axis::Suspicion, Axis::Fear, Axis::Respect, Axis::Approval, Axis::Loyalty, Axis::Resentment, Axis::Trust};
+
+// Matches the names rule files use, so a log line reads like the rule it came
+// from.
+constexpr const char *AxisName(Axis axis) {
+  switch (axis) {
+  case Axis::Recognition:
+    return "recognition";
+  case Axis::Suspicion:
+    return "suspicion";
+  case Axis::Fear:
+    return "fear";
+  case Axis::Respect:
+    return "respect";
+  case Axis::Approval:
+    return "approval";
+  case Axis::Loyalty:
+    return "loyalty";
+  case Axis::Resentment:
+    return "resentment";
+  case Axis::Trust:
+    return "trust";
+  }
+  return "unknown";
+}
+
 std::optional<double> CurrentGameDays() {
   const auto *calendar = RE::Calendar::GetSingleton();
   if (!calendar) {
@@ -57,6 +86,10 @@ void AppearanceMemoryService::Configure(MemoryEngine *memoryEngine) {
 
 void AppearanceMemoryService::SetSessionActive(bool value) {
   sessionActive = value;
+}
+
+void AppearanceMemoryService::SetImpressionsEnabled(bool value) {
+  impressionsEnabled = value;
 }
 
 void AppearanceMemoryService::Reset() {
@@ -150,6 +183,50 @@ bool AppearanceMemoryService::RecordRecognition(const NpcObservationContext &con
   return changed;
 }
 
+void AppearanceMemoryService::Impress(const NpcObservationContext &context, const PerceptionOutcome &outcome, const CapturedAppearance &appearance,
+                                      double gameDays) {
+  if (!impressionsEnabled) {
+    return;
+  }
+  const auto &items = appearance.items;
+  const auto &keywords = appearance.keywords;
+  ImpressionResult impression{};
+  const auto started = Clock::now();
+  const auto status = skyrim_remember_observe_impression(engine,
+                                                         context.referenceFormId,
+                                                         gameDays,
+                                                         static_cast<std::uint32_t>(context.profile),
+                                                         items.empty() ? nullptr : items.data(),
+                                                         items.size(),
+                                                         keywords.empty() ? nullptr : keywords.data(),
+                                                         keywords.size(),
+                                                         &impression);
+  metrics.bridging += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
+  ++metrics.bridgeCalls;
+  if (status != BridgeStatus::Ok) {
+    ++metrics.failures;
+    SKSE::log::error("Impression failed: ref={:08X} status={}", context.referenceFormId, static_cast<std::uint32_t>(status));
+    return;
+  }
+  // Only a noticeable rise is news. Topping an axis back up after decay happens
+  // on every scan while the outfit is worn and stays out of the log.
+  if (impression.raisedAxes == 0) {
+    return;
+  }
+  std::string raised;
+  for (const auto axis : allAxes) {
+    if ((impression.raisedAxes & (1U << AxisSlot(axis))) != 0) {
+      raised += std::format("{}{}={:.1f}", raised.empty() ? "" : ",", AxisName(axis), impression.targets[AxisSlot(axis)]);
+    }
+  }
+  SKSE::log::info("Impression: observer={:08X} profile={} rules={} raised={} distance={}",
+                  context.referenceFormId,
+                  ProfileName(context.profile),
+                  impression.matchedRules,
+                  raised,
+                  outcome.distance);
+}
+
 void AppearanceMemoryService::PruneObserverStates() {
   // Only the last verdict is forgotten here, never the memory in the Rust core:
   // an observer unseen this long meets the Player again as a new encounter.
@@ -206,6 +283,9 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveRoutine(const
   if (registered == BridgeStatus::Created || result.learned != 0 || recognitionChanged) {
     LogAppearance("Observation", context, outcome, result);
   }
+  if (result.recognized != 0) {
+    Impress(context, outcome, *routineAppearance, *gameDays);
+  }
   return IdentityObservation{result, registered == BridgeStatus::Created, recognitionChanged};
 }
 
@@ -249,6 +329,9 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(co
                   transitionEvents,
                   before.recognized != 0);
   LogAppearance("Appearance transition result", context, outcome, after);
+  if (after.recognized != 0) {
+    Impress(context, outcome, transitionCurrent, *gameDays);
+  }
   return IdentityObservation{after, registered == BridgeStatus::Created, recognitionChanged};
 }
 

@@ -35,6 +35,11 @@ public:
   // Gameplay is running and the store is usable.
   void SetSessionActive(bool value);
 
+  // At least one impression rule is bound to game data. Without one, recognized
+  // observations skip the impression call entirely. Survives Reset: rules
+  // belong to the game session, not to a save.
+  void SetImpressionsEnabled(bool value);
+
   // Load, revert, or new game: forget the baseline and the per-observer log
   // state. Nothing here is persisted.
   void Reset();
@@ -96,6 +101,9 @@ private:
 
   bool RecordRecognition(const NpcObservationContext &context, bool recognized);
 
+  // Applies the impression rules to an NPC that has just recognized the Player.
+  void Impress(const NpcObservationContext &context, const PerceptionOutcome &outcome, const CapturedAppearance &appearance, double gameDays);
+
   void PruneObserverStates();
 
   MemoryEngine *engine = nullptr;
@@ -109,6 +117,7 @@ private:
   std::uint64_t transitionEvents = 0;
   bool transitionActive = false;
   bool sessionActive = false;
+  bool impressionsEnabled = false;
 };
 
 } // namespace SkyrimRemember

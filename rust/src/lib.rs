@@ -4,6 +4,7 @@ mod appearance;
 mod bridge;
 mod memory;
 mod persistence;
+mod rules;
 mod tuning;
 
 pub use bridge::*;
@@ -15,6 +16,11 @@ pub use appearance::{
 
 pub use memory::{Axis, MemoryStore, NpcId, NpcMemory, AXIS_CAPACITY};
 
+pub use rules::{
+    ImpressionObservation, ImpressionOutcome, Profile, RuleReference, Rules, RulesError,
+    MAX_RULE_FILE_BYTES, MAX_WORN_KEYWORDS, NOTICEABLE_RISE, PROFILE_COUNT,
+};
+
 pub use tuning::{
     AppearanceWeights, DecayHalfLives, Limits, ObservationTuning, RecognitionTuning, Tuning,
     MAX_APPEARANCE_ITEMS, MAX_KNOWN_APPEARANCES, MAX_MEMORY_VALUE,
@@ -23,7 +29,7 @@ pub use tuning::{
 /// Bumped whenever a signature, struct layout, or field meaning changes.
 /// `RustBridge.h` mirrors this as `SkyrimRememberAbiVersion` and `BridgeSmoke`
 /// compares the two at run time.
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 const INITIALIZED_MESSAGE: &CStr = c"Rust bridge initialized";
 

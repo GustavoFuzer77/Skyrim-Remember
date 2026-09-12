@@ -53,6 +53,9 @@ struct WornPiece {
 // The Player's outfit in the shape the Rust core expects.
 struct CapturedAppearance {
   std::vector<AppearanceItem> items;
+  // Keyword FormIDs carried by the worn items, sorted and unique. Impression
+  // rules match these; recognition ignores them.
+  std::vector<std::uint32_t> keywords;
   bool faceVisible = true;
 
   bool operator==(const CapturedAppearance &) const = default;

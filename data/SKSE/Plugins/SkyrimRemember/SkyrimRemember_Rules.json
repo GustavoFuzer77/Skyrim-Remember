@@ -1,0 +1,25 @@
+{
+  "impressions": [
+    {
+      "name": "Bandit armor",
+      "forms": [
+        "0x06F393~Skyrim.esm",
+        "0x06F398~Skyrim.esm",
+        "0x06F39B~Skyrim.esm",
+        "0x06F39E~Skyrim.esm"
+      ],
+      "projects": { "banditry": 40 }
+    },
+    {
+      "name": "Hide and studded armor",
+      "keywords": ["ArmorMaterialHide", "ArmorMaterialStudded"],
+      "projects": { "banditry": 15 }
+    }
+  ],
+  "temperaments": {
+    "guard": { "banditry": { "suspicion": 1.0 } },
+    "citizen": { "banditry": { "suspicion": 0.6, "fear": 0.4 } },
+    "merchant": { "banditry": { "suspicion": 0.8 } },
+    "generic": { "banditry": { "suspicion": 0.5 } }
+  }
+}

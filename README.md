@@ -82,6 +82,26 @@ But it only works while he can genuinely see you. Break line of sight, or slip
 out of his detection, and the connection is not made — he will see a stranger
 in new clothes.
 
+### What you wear says something about you
+
+Walk into town in bandit furs and the guard who recognises you will trust you a
+little less. Clothes do not make anyone *know* you; they colour what someone who
+already knows you thinks of you.
+
+An outfit implies a level, not a running total: a guard who sees you in bandit
+armour for an hour is exactly as suspicious as one who saw you for a moment, and
+once you change the feeling fades on its own. It never erases something
+stronger — suspicion they already hold against you is not forgiven because you
+changed into something respectable.
+
+Only someone who recognises you holds it against you. A masked stranger in
+bandit furs is a stranger's problem.
+
+Different people read the same outfit differently: a guard grows suspicious, a
+townsperson grows suspicious and a little afraid, and your follower does not
+care. All of it lives in rule files, not in the plugin — see
+[Impression rules](#impression-rules).
+
 ### Memory fades
 
 Nothing is remembered forever, and each feeling fades at its own pace.
@@ -115,6 +135,8 @@ you.
 - Recognising you through a change of clothes they watched
 - Memory that fades with in-game time
 - Everything saved in and restored from your save file
+- Outfits that make NPCs suspicious — bandit armour by default — driven by rule
+  files anyone can extend
 - A HUD notice when a guard recognises you — including the first time — or
   stops recognising you. Guards recognising you together share one notice,
   and the same guard is not announced again within a few minutes. A guard
@@ -128,10 +150,11 @@ no crime or bounty behaviour, no gossip between NPCs, no shopkeeper reactions,
 and followers do not use any of it. Those come later — this release is the
 foundation they will be built on.
 
-All nearby NPC profiles can form appearance memories. Guards — of every hold —
-are the only profile with a reaction adapter at the moment, and its first
-visible effect is deliberately limited to recognition notices. Followers, citizens and merchants are
-recognised as categories but do not react yet.
+All nearby NPC profiles can form appearance memories and impressions. Guards —
+of every hold — are the only profile with a reaction adapter at the moment, and
+its first visible effect is deliberately limited to recognition notices.
+Suspicion and fear are remembered, but nothing acts on them yet. Followers,
+citizens and merchants are recognised as categories but do not react yet.
 
 ## Requirements
 
@@ -140,8 +163,10 @@ recognised as categories but do not react yet.
 - Address Library for SKSE Plugins
 
 Install it like any other SKSE plugin: the `.dll` goes in
-`Data/SKSE/Plugins/`. There is no plugin file to enable and no scripts to
-clean, so it can be added to an existing save.
+`Data/SKSE/Plugins/`, and the `data/SKSE/Plugins/SkyrimRemember/` folder from
+this repository goes in `Data/SKSE/Plugins/SkyrimRemember/`. There is no plugin
+file to enable and no scripts to clean, so it can be added to an existing save.
+Without the rule file the plugin still works; outfits simply imply nothing.
 
 The plugin writes a log to
 `Documents/My Games/Skyrim Special Edition/SKSE/SkyrimRemember.log`, which is
@@ -156,6 +181,70 @@ Guards are recognised by the game's own guard flag — the one its crime and
 dialogue systems use — not by a list of factions. Guards of every hold, guards
 swapped by the Civil War questline, and guards added by other mods are all
 treated as guards without a patch.
+
+## Impression rules
+
+What an outfit makes someone feel is data. Every file named `*_Rules.json` in
+`Data/SKSE/Plugins/SkyrimRemember/` is loaded at startup, in file name order, so
+a mod adds behaviour by shipping its own file instead of editing someone
+else's. The default file is
+[`SkyrimRemember_Rules.json`](data/SKSE/Plugins/SkyrimRemember/SkyrimRemember_Rules.json).
+
+```json
+{
+  "impressions": [
+    {
+      "name": "Bandit armor",
+      "forms": ["0x06F393~Skyrim.esm"],
+      "projects": { "banditry": 40 }
+    },
+    {
+      "name": "Hide and studded armor",
+      "keywords": ["ArmorMaterialHide", "ArmorMaterialStudded"],
+      "projects": { "banditry": 15 }
+    }
+  ],
+  "temperaments": {
+    "guard": { "banditry": { "suspicion": 1.0 } },
+    "citizen": { "banditry": { "suspicion": 0.6, "fear": 0.4 } }
+  }
+}
+```
+
+**Impressions** say what an item suggests. Each one matches worn items by
+`keywords` (EditorIDs) and/or `forms` (`0xLocalID~Plugin.esp`, the notation SPID
+and KID use), and `projects` one or more named ideas at a strength from 0 to 100.
+Projection names are free text: `banditry`, `threat`, `wealth` — whatever the
+temperaments refer to.
+
+Prefer keywords: `ArmorMaterialHide` covers every hide armour of every mod,
+including ones released after your rule. Use `forms` only for items with no
+distinguishing keyword — vanilla bandit armour, for example, carries none — or
+give those items a keyword with KID and match that.
+
+**Temperaments** say how each kind of person reads a projection. For a profile
+(`guard`, `follower`, `citizen`, `merchant`, `generic`) and a projection, they
+list the axes it becomes and a weight. `banditry 40` read by a guard with
+`suspicion: 1.0` raises suspicion to 40; read by a citizen with `fear: 0.4` it
+raises fear to 16. A profile with no entry for a projection ignores it.
+
+The axes are `recognition`, `suspicion`, `fear`, `respect`, `approval`,
+`loyalty`, `resentment` and `trust`.
+
+How the numbers combine:
+
+- Within one projection the strongest matching item wins; three bandit pieces
+  are no more suspicious than the most suspicious one.
+- Each axis is raised to the highest level any projection gives it, and never
+  lowered.
+- A later file's temperament entry replaces an earlier one for the same profile
+  and projection, so a mod can retune the defaults. Impressions from every file
+  add up.
+
+A file with any error — invalid JSON, an unknown field, profile or axis, a
+strength outside 0–100 — is rejected as a whole and the log says why; the other
+files still load. A keyword or form that does not exist in your load order is
+logged and skipped. Look for `Impression rules` in `SkyrimRemember.log`.
 
 ## Building from source
 

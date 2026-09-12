@@ -89,6 +89,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/EquipmentBatch.h
         cpp/include/GuardNotices.h
         cpp/include/GuardReactionAdapter.h
+        cpp/include/ImpressionRules.h
         cpp/include/NpcObservation.h
         cpp/include/NpcObservationService.h
         cpp/include/NpcProfile.h
@@ -103,6 +104,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/src/EquipmentBatch.cpp
         cpp/src/GuardNotices.cpp
         cpp/src/GuardReactionAdapter.cpp
+        cpp/src/ImpressionRules.cpp
         cpp/src/NpcClassification.cpp
         cpp/src/NpcObservation.cpp
         cpp/src/NpcObservationService.cpp

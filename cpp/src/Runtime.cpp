@@ -1,6 +1,7 @@
 #include "Runtime.h"
 #include "AppearanceMemoryService.h"
 #include "EquipmentBatch.h"
+#include "ImpressionRules.h"
 #include "NpcObservationService.h"
 #include "NpcProfile.h"
 #include "ObservationTuning.h"
@@ -116,6 +117,7 @@ private:
   EquipmentBatch equipment;
   bool equipmentAttached = false;
   bool menuAttached = false;
+  bool rulesLoaded = false;
   bool playing = false;
   bool sessionReady = false;
 
@@ -232,6 +234,13 @@ private:
   }
 
   void AttachEventSinks() {
+    if (!rulesLoaded) {
+      // Rules outlive every load and new game: they describe the installed mods,
+      // not a save. Loading them once here is what keeps a reload cheap.
+      const auto rules = ImpressionRules::Load(engine.get());
+      appearanceMemory.SetImpressionsEnabled(rules.boundReferences > 0);
+      rulesLoaded = true;
+    }
     auto *scriptEvents = RE::ScriptEventSourceHolder::GetSingleton();
     if (!scriptEvents) {
       SKSE::log::error("Skyrim Remember disabled: no script event source");
