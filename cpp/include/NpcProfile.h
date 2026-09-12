@@ -21,10 +21,6 @@ inline constexpr std::size_t npcProfileCount = 5;
 
 const char *ProfileName(NpcProfile profile);
 
-// Resolves the Forms classification depends on. Call once after kDataLoaded.
-// Returns false when the game data the classifier needs is missing.
-bool InitializeClassification();
-
 // Places one humanoid NPC, or returns no profile for the Player and creatures.
 // Cheap, data-driven, and free of side effects: it must not create memory,
 // capture appearance, or reach the Rust core.

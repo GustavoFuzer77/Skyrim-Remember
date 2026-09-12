@@ -86,7 +86,6 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
         cpp/include/Appearance.h
         cpp/include/AppearanceMemoryService.h
-        cpp/include/Defines.h
         cpp/include/EquipmentBatch.h
         cpp/include/GuardNotices.h
         cpp/include/GuardReactionAdapter.h

@@ -116,7 +116,6 @@ private:
   EquipmentBatch equipment;
   bool equipmentAttached = false;
   bool menuAttached = false;
-  bool classified = false;
   bool playing = false;
   bool sessionReady = false;
 
@@ -233,13 +232,6 @@ private:
   }
 
   void AttachEventSinks() {
-    if (!classified) {
-      classified = InitializeClassification();
-    }
-    if (!classified) {
-      SKSE::log::error("Skyrim Remember disabled: classification unavailable");
-      return;
-    }
     auto *scriptEvents = RE::ScriptEventSourceHolder::GetSingleton();
     if (!scriptEvents) {
       SKSE::log::error("Skyrim Remember disabled: no script event source");

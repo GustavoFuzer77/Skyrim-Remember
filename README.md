@@ -128,9 +128,9 @@ no crime or bounty behaviour, no gossip between NPCs, no shopkeeper reactions,
 and followers do not use any of it. Those come later — this release is the
 foundation they will be built on.
 
-All nearby NPC profiles can form appearance memories. Only Whiterun guards have
-a reaction adapter at the moment, and its first visible effect is deliberately
-limited to recognition notices. Followers, citizens and merchants are
+All nearby NPC profiles can form appearance memories. Guards — of every hold —
+are the only profile with a reaction adapter at the moment, and its first
+visible effect is deliberately limited to recognition notices. Followers, citizens and merchants are
 recognised as categories but do not react yet.
 
 ## Requirements
@@ -152,11 +152,10 @@ the place to look if something is not behaving.
 It reads the equipment you already have on and the factions the game already
 has, so armour and armour-slot mods work without any patch.
 
-The one thing that can confuse it is a mod that changes which faction Whiterun
-guards belong to, or that replaces the guards themselves. The Civil War
-questline can do this too. The plugin errs on the side of caution: an NPC that
-stops matching simply stops being watched, and the memory he already had is
-left alone rather than handed to someone else.
+Guards are recognised by the game's own guard flag — the one its crime and
+dialogue systems use — not by a list of factions. Guards of every hold, guards
+swapped by the Civil War questline, and guards added by other mods are all
+treated as guards without a patch.
 
 ## Building from source
 

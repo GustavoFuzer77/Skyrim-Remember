@@ -1,39 +1,17 @@
-#include "Defines.h"
 #include "NpcProfile.h"
 
 #include <RE/A/Actor.h>
 #include <RE/P/PlayerCharacter.h>
-#include <RE/T/TESDataHandler.h>
-#include <RE/T/TESFaction.h>
-#include <SKSE/SKSE.h>
 
 #include <string_view>
 
 namespace SkyrimRemember {
 namespace {
 
-RE::TESFaction *whiterunGuardFaction = nullptr;
-// add new factions here (types)
-
 // The keyword every humanoid NPC record carries; creatures do not.
 constexpr std::string_view npcTypeKeyword = "ActorTypeNPC";
 
 } // namespace
-
-bool InitializeClassification() {
-
-  auto *data = RE::TESDataHandler::GetSingleton();
-
-  whiterunGuardFaction = data ? data->LookupForm<RE::TESFaction>(FormIds::WhiterunGuardFactionLocalID, "Skyrim.esm") : nullptr;
-
-  if (!whiterunGuardFaction) {
-    SKSE::log::error("Classification disabled: GuardFactionWhiterun not found");
-    return false;
-  }
-
-  SKSE::log::info("Classification ready: GuardFactionWhiterun={:08X}", whiterunGuardFaction->GetFormID());
-  return true;
-}
 
 std::optional<NpcProfile> ClassifyNpc(RE::Actor &actor) {
 
@@ -49,14 +27,12 @@ std::optional<NpcProfile> ClassifyNpc(RE::Actor &actor) {
     return std::nullopt;
   }
 
-  // Guard is the first profile receiving role-specific reactions, and it is
-  // deliberately not
-  // geographic: faction membership decides, so a Whiterun guard met on the road
-  // is still the same guard. Civil War and mods can rewrite factions and
-  // templates, which is why the test stays this conservative — an actor that
-  // stops matching simply stops being observed, and the memory it already has
-  // is left untouched rather than reassigned.
-  if (whiterunGuardFaction && actor.IsGuard() && actor.IsInFaction(whiterunGuardFaction)) {
+  // The engine itself flags guards, the same flag its crime and dialogue
+  // systems read. Nothing here names a hold or a faction, so the guards of every
+  // city, guards swapped by the Civil War, and guards added by mods are all one
+  // profile, with no list to keep up to date. The hold a guard serves is
+  // actor.GetCrimeFaction(), should a reaction ever need it.
+  if (actor.IsGuard()) {
     return NpcProfile::Guard;
   }
 
