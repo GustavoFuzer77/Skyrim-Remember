@@ -1,0 +1,39 @@
+# O equivalente ao `cargo clippy` deste lado da fronteira.
+#
+# Roda com:
+#   clang-tidy -p build/clang-release cpp/src/Arquivo.cpp
+#   run-clang-tidy -p build/clang-release cpp
+#
+# HeaderFilterRegex mantém o ruído do vcpkg (CommonLibSSE, spdlog) fora do
+# relatório sem esconder os nossos próprios headers.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  clang-analyzer-*,
+  misc-*,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-use-using,
+  modernize-use-emplace,
+  readability-const-return-type,
+  readability-misleading-indentation,
+  readability-redundant-member-init,
+  -bugprone-easily-swappable-parameters,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-const-correctness,
+  -misc-include-cleaner,
+  -performance-enum-size,
+  -performance-avoid-endl,
+  -readability-simplify-boolean-expr
+
+HeaderFilterRegex: 'cpp[/\\](include|src|tests)[/\\].*'
+
+WarningsAsErrors: ''
+
+CheckOptions:
+  # A macro CHECK do BridgeSmoke expande para um if/return que vários checks de
+  # legibilidade leem como código escrito à mão.
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: 'CHECK'
