@@ -38,6 +38,15 @@ bool ResolveForm(void *, std::uint32_t oldFormID,
 
 namespace {
 
+// Reading and writing one axis slot, so the assertions say what they mean.
+float &Slot(MemorySnapshot &snapshot, Axis axis) {
+  return snapshot.axes[AxisSlot(axis)];
+}
+
+float &Slot(MemoryDelta &delta, Axis axis) {
+  return delta.axes[AxisSlot(axis)];
+}
+
 namespace BipedSlot = SkyrimRemember::BipedSlot;
 
 using SkyrimRemember::MergeWornPieces;
@@ -47,6 +56,8 @@ constexpr std::uint32_t bodySlot = 1U << 2;
 constexpr std::uint32_t handsSlot = 1U << 3;
 } // namespace
 
+
+// true entry poiny
 int main() {
 
   CHECK(skyrim_remember_abi_version() == SkyrimRememberAbiVersion);
@@ -153,22 +164,49 @@ int main() {
 
   CHECK(engine);
 
-  MemorySnapshot snapshot{1.0f, 2.0f, 3.0f, 4.0f, 5.0};
+  MemorySnapshot snapshot{};
+  Slot(snapshot, Axis::Recognition) = 1.0f;
+  Slot(snapshot, Axis::Respect) = 4.0f;
+  snapshot.lastDecayGameDays = 5.0;
 
   CHECK(skyrim_remember_get(engine.get(), 123, 10.0, &snapshot) ==
         BridgeStatus::NotFound);
 
-  CHECK(snapshot.recognition == 1.0f && snapshot.respect == 4.0f);
+  // A failed read must leave every byte of the caller's storage alone.
+  CHECK(Slot(snapshot, Axis::Recognition) == 1.0f &&
+        Slot(snapshot, Axis::Respect) == 4.0f &&
+        snapshot.lastDecayGameDays == 5.0);
 
   CHECK(skyrim_remember_register(engine.get(), 0, 10.0) ==
         BridgeStatus::InvalidId);
   CHECK(skyrim_remember_register(engine.get(), 123, 10.0) ==
         BridgeStatus::Created);
 
-  MemoryDelta delta{0.0f, 0.0f, 30.0f, 50.0f};
+  MemoryDelta delta{};
+  Slot(delta, Axis::Fear) = 30.0f;
+  Slot(delta, Axis::Respect) = 50.0f;
   CHECK(skyrim_remember_apply_delta(engine.get(), 123, 10.0, delta,
                                     &snapshot) == BridgeStatus::Ok);
-  CHECK(snapshot.fear == 30.0f && snapshot.respect == 50.0f);
+  CHECK(Slot(snapshot, Axis::Fear) == 30.0f &&
+        Slot(snapshot, Axis::Respect) == 50.0f);
+
+  // A reserve slot the C++ side never wrote must come back as zero, and an
+  // axis nobody touched must not have been disturbed by the delta.
+  CHECK(Slot(snapshot, Axis::Approval) == 0.0f &&
+        Slot(snapshot, Axis::Suspicion) == 0.0f);
+
+  // Writing a follower axis through the same call works today, even though
+  // nothing in the plugin does it yet.
+  MemoryDelta followerDelta{};
+  Slot(followerDelta, Axis::Approval) = 12.0f;
+  CHECK(skyrim_remember_apply_delta(engine.get(), 123, 10.0, followerDelta,
+                                    &snapshot) == BridgeStatus::Ok);
+  CHECK(Slot(snapshot, Axis::Approval) == 12.0f &&
+        Slot(snapshot, Axis::Fear) == 30.0f);
+  Slot(followerDelta, Axis::Approval) = -12.0f;
+  CHECK(skyrim_remember_apply_delta(engine.get(), 123, 10.0, followerDelta,
+                                    &snapshot) == BridgeStatus::Ok);
+  CHECK(Slot(snapshot, Axis::Approval) == 0.0f);
 
   const AppearanceItem outfit[] = {{0x1000, 1U << 2}, {0x2000, 1U << 3}};
   AppearanceResult appearance{};
@@ -219,13 +257,16 @@ int main() {
   CHECK(stats.loaded == 1 && stats.unresolved == 0);
   CHECK(skyrim_remember_get(engine.get(), 123, 10.0, &snapshot) ==
         BridgeStatus::Ok);
-  CHECK(snapshot.fear == 30.0f && snapshot.respect == 50.0f);
+  CHECK(Slot(snapshot, Axis::Fear) == 30.0f &&
+        Slot(snapshot, Axis::Respect) == 50.0f);
   CHECK(skyrim_remember_register(engine.get(), 123, 10.0) == BridgeStatus::Ok);
   CHECK(skyrim_remember_get(engine.get(), 123, 10.0, &snapshot) ==
         BridgeStatus::Ok);
 
-  CHECK(snapshot.recognition == 0.0f && snapshot.suspicion == 0.0f &&
-        snapshot.fear == 30.0f && snapshot.respect == 50.0f);
+  CHECK(Slot(snapshot, Axis::Recognition) == 0.0f &&
+        Slot(snapshot, Axis::Suspicion) == 0.0f &&
+        Slot(snapshot, Axis::Fear) == 30.0f &&
+        Slot(snapshot, Axis::Respect) == 50.0f);
 
   CHECK(skyrim_remember_get(engine.get(), 456, 10.0, &snapshot) ==
         BridgeStatus::NotFound);

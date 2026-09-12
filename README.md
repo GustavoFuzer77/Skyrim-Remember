@@ -78,10 +78,18 @@ in new clothes.
 
 ### Memory fades
 
-Nothing is remembered forever. Suspicion fades within a couple of in-game days,
-fear within three, and how well someone knows you fades over about a month of
-in-game time. Each guard keeps up to eight outfits in mind; when he sees a
-ninth, the one he has not seen in longest is forgotten.
+Nothing is remembered forever, and each feeling fades at its own pace.
+Suspicion goes within a couple of in-game days, fear within three, and how well
+someone knows you fades over about a month of in-game time. Each guard keeps up
+to eight outfits in mind; when he sees a ninth, the one he has not seen in
+longest is forgotten.
+
+What an NPC can feel is not a fixed list of four things. Guards deal in fear,
+respect, suspicion and familiarity; a follower will deal in approval, loyalty
+and trust instead. Everyone carries the same set of slots and simply leaves
+untouched the ones their kind of person has no use for — which is also why an
+NPC who changes role, like a housecarl who becomes your follower, keeps
+everything they already felt about you rather than starting over.
 
 All of this is stored inside your save file, so each save has its own memories.
 Uninstalling leaves nothing behind in the game world.

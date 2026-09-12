@@ -1,13 +1,81 @@
 //! Who an NPC remembers and how strongly, independent of what it saw.
 //!
-//! The four memory axes and their decay live here; the appearance comparison
-//! that feeds them lives in [`crate::appearance`], and every number both of
-//! them read lives in [`crate::tuning`].
+//! The axes and their decay live here; the appearance comparison that feeds
+//! them lives in [`crate::appearance`], and every number both of them read
+//! lives in [`crate::tuning`].
 
 use crate::appearance::{normalize_items, KnownAppearance};
 use crate::tuning::{DecayHalfLives, Tuning, MAX_MEMORY_VALUE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ops::{Index, IndexMut};
+
+/// How many axis slots every NPC memory carries.
+///
+/// Deliberately larger than the number of axes actually named below. The spare
+/// slots are what make the set open: adding an [`Axis`] variant that fits in
+/// the reserve costs one line, and changes neither the ABI struct sizes nor the
+/// persisted payload version. An older save simply loads the new axis at zero,
+/// which is the right value for "this NPC never felt that".
+pub const AXIS_CAPACITY: usize = 16;
+
+/// One dimension of what an NPC feels about the Player.
+///
+/// Storage is uniform: every NPC carries every slot. Which axes actually get
+/// written is a matter of behaviour — a guard's temperament touches fear and
+/// respect, a follower's would touch approval and loyalty — never of type. That
+/// is what lets an NPC change profile (a Whiterun housecarl becoming a
+/// follower, say) without converting or losing anything: the axes already
+/// written stay written, and the new ones start at zero.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Axis {
+    /// How well the NPC knows the Player by sight. Read by the appearance
+    /// system, so it is the one axis every profile shares.
+    Recognition = 0,
+    Suspicion = 1,
+    Fear = 2,
+    Respect = 3,
+    /// Reserved for the Follower profile. Nothing writes these yet; they exist
+    /// so that the shape of the memory does not have to change when something
+    /// does.
+    Approval = 4,
+    Loyalty = 5,
+    Resentment = 6,
+    Trust = 7,
+}
+
+impl Axis {
+    /// Every named axis, in slot order. The remaining slots up to
+    /// [`AXIS_CAPACITY`] are reserve and always read as zero.
+    pub const ALL: [Axis; 8] = [
+        Axis::Recognition,
+        Axis::Suspicion,
+        Axis::Fear,
+        Axis::Respect,
+        Axis::Approval,
+        Axis::Loyalty,
+        Axis::Resentment,
+        Axis::Trust,
+    ];
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Axis::Recognition => "recognition",
+            Axis::Suspicion => "suspicion",
+            Axis::Fear => "fear",
+            Axis::Respect => "respect",
+            Axis::Approval => "approval",
+            Axis::Loyalty => "loyalty",
+            Axis::Resentment => "resentment",
+            Axis::Trust => "trust",
+        }
+    }
+}
 
 /// Identity of one actor reference in the current game session.
 ///
@@ -27,13 +95,26 @@ impl NpcId {
     }
 }
 
+/// What one NPC feels about the Player, and when that was last brought
+/// up to date.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct NpcMemory {
-    pub recognition: f32,
-    pub suspicion: f32,
-    pub fear: f32,
-    pub respect: f32,
+    pub axes: [f32; AXIS_CAPACITY],
     pub last_decay_game_days: f64,
+}
+
+impl Index<Axis> for NpcMemory {
+    type Output = f32;
+
+    fn index(&self, axis: Axis) -> &f32 {
+        &self.axes[axis.index()]
+    }
+}
+
+impl IndexMut<Axis> for NpcMemory {
+    fn index_mut(&mut self, axis: Axis) -> &mut f32 {
+        &mut self.axes[axis.index()]
+    }
 }
 
 impl NpcMemory {
@@ -50,36 +131,38 @@ impl NpcMemory {
         }
 
         let elapsed_hours = (current_game_days - self.last_decay_game_days) * 24.0;
-        self.recognition = decay(
-            self.recognition,
-            elapsed_hours,
-            half_lives.recognition_hours,
-        );
-        self.suspicion = decay(self.suspicion, elapsed_hours, half_lives.suspicion_hours);
-        self.fear = decay(self.fear, elapsed_hours, half_lives.fear_hours);
-        self.respect = decay(self.respect, elapsed_hours, half_lives.respect_hours);
+        for (value, half_life) in self.axes.iter_mut().zip(half_lives.hours) {
+            *value = decay(*value, elapsed_hours, half_life);
+        }
         self.last_decay_game_days = current_game_days;
     }
 
-    pub fn add(&mut self, recognition: f32, suspicion: f32, fear: f32, respect: f32) {
-        self.recognition = bounded_add(self.recognition, recognition);
-        self.suspicion = bounded_add(self.suspicion, suspicion);
-        self.fear = bounded_add(self.fear, fear);
-        self.respect = bounded_add(self.respect, respect);
+    /// Adds one delta per slot, clamping every axis to `0..=MAX_MEMORY_VALUE`.
+    pub fn add(&mut self, deltas: &[f32; AXIS_CAPACITY]) {
+        for (value, delta) in self.axes.iter_mut().zip(deltas) {
+            *value = bounded_add(*value, *delta);
+        }
+    }
+
+    pub fn add_axis(&mut self, axis: Axis, delta: f32) {
+        self[axis] = bounded_add(self[axis], delta);
     }
 
     pub fn is_valid(&self) -> bool {
-        [self.recognition, self.suspicion, self.fear, self.respect]
-            .into_iter()
-            .all(|value| value.is_finite() && (0.0..=MAX_MEMORY_VALUE).contains(&value))
+        self.axes
+            .iter()
+            .all(|value| value.is_finite() && (0.0..=MAX_MEMORY_VALUE).contains(value))
             && self.last_decay_game_days.is_finite()
             && self.last_decay_game_days >= 0.0
     }
 }
 
 fn decay(value: f32, elapsed_hours: f64, half_life_hours: f64) -> f32 {
+    // A slot with no configured half-life does not fade. Zeroing it instead
+    // would silently erase a newly added axis whose tuning was forgotten, which
+    // is exactly the mistake the reserve slots invite.
     if value <= 0.0 || !half_life_hours.is_finite() || half_life_hours <= 0.0 {
-        return 0.0;
+        return value.max(0.0);
     }
     (f64::from(value) * 0.5_f64.powf(elapsed_hours / half_life_hours)) as f32
 }

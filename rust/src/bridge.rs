@@ -1,7 +1,9 @@
+use crate::memory::{Axis, AXIS_CAPACITY};
 use crate::persistence::{self, PersistenceError};
 use crate::tuning::{Tuning, MAX_APPEARANCE_ITEMS};
 use crate::{AppearanceItem, MemoryStore, NpcId, NpcMemory};
 use std::ffi::c_void;
+use std::ops::{Index, IndexMut};
 use std::slice;
 use std::sync::Mutex;
 
@@ -28,35 +30,61 @@ pub enum BridgeStatus {
 }
 
 /// Copied into caller-owned storage; no Rust allocation crosses the ABI.
+///
+/// Indexed by `Axis`, which both sides mirror. Slots beyond the named axes are
+/// reserve and read as zero, so naming a new axis does not resize this struct.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct MemorySnapshot {
-    pub recognition: f32,
-    pub suspicion: f32,
-    pub fear: f32,
-    pub respect: f32,
+    pub axes: [f32; AXIS_CAPACITY],
     pub last_decay_game_days: f64,
 }
 
 impl From<NpcMemory> for MemorySnapshot {
     fn from(memory: NpcMemory) -> Self {
         Self {
-            recognition: memory.recognition,
-            suspicion: memory.suspicion,
-            fear: memory.fear,
-            respect: memory.respect,
+            axes: memory.axes,
             last_decay_game_days: memory.last_decay_game_days,
         }
     }
 }
 
+impl Index<Axis> for MemorySnapshot {
+    type Output = f32;
+
+    fn index(&self, axis: Axis) -> &f32 {
+        &self.axes[axis.index()]
+    }
+}
+
+/// One change per axis slot. Leaving a slot at zero leaves that axis alone.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct MemoryDelta {
-    pub recognition: f32,
-    pub suspicion: f32,
-    pub fear: f32,
-    pub respect: f32,
+    pub axes: [f32; AXIS_CAPACITY],
+}
+
+impl MemoryDelta {
+    /// A delta that touches exactly one axis.
+    pub fn of(axis: Axis, value: f32) -> Self {
+        let mut delta = Self::default();
+        delta[axis] = value;
+        delta
+    }
+}
+
+impl Index<Axis> for MemoryDelta {
+    type Output = f32;
+
+    fn index(&self, axis: Axis) -> &f32 {
+        &self.axes[axis.index()]
+    }
+}
+
+impl IndexMut<Axis> for MemoryDelta {
+    fn index_mut(&mut self, axis: Axis) -> &mut f32 {
+        &mut self.axes[axis.index()]
+    }
 }
 
 #[repr(C)]
@@ -89,10 +117,7 @@ fn valid_game_days(game_days: f64) -> bool {
 }
 
 fn valid_delta(delta: MemoryDelta) -> bool {
-    delta.recognition.is_finite()
-        && delta.suspicion.is_finite()
-        && delta.fear.is_finite()
-        && delta.respect.is_finite()
+    delta.axes.iter().all(|value| value.is_finite())
 }
 
 /// Validation shared by both appearance entry points.
@@ -265,12 +290,7 @@ pub unsafe extern "C" fn skyrim_remember_apply_delta(
         return BridgeStatus::Unavailable;
     };
     let memory = store.touch_or_create(id, game_days);
-    memory.add(
-        delta.recognition,
-        delta.suspicion,
-        delta.fear,
-        delta.respect,
-    );
+    memory.add(&delta.axes);
     // SAFETY: caller owns writable output storage; the snapshot has no pointers.
     unsafe { output.write((*memory).into()) };
     BridgeStatus::Ok

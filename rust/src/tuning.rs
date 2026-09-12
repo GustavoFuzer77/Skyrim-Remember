@@ -6,6 +6,8 @@
 //! single structure to fill in.
 
 use crate::appearance::AppearanceCategory;
+use crate::memory::{Axis, AXIS_CAPACITY};
+use std::ops::{Index, IndexMut};
 
 /// Upper bound of every memory axis. Also the divisor that turns a raw
 /// recognition value into the 0..=1 familiarity ratio.
@@ -19,23 +21,38 @@ pub const MAX_APPEARANCE_ITEMS: usize = 64;
 /// Default number of distinct outfits one NPC remembers.
 pub const MAX_KNOWN_APPEARANCES: usize = 8;
 
-/// Half-lives, in game hours, of each memory axis.
+/// Half-life, in game hours, of every memory axis slot.
+///
+/// A slot left at zero does not fade at all. That is the deliberate default for
+/// the reserve slots: an axis added without tuning keeps its value instead of
+/// silently draining away.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DecayHalfLives {
-    pub recognition_hours: f64,
-    pub suspicion_hours: f64,
-    pub fear_hours: f64,
-    pub respect_hours: f64,
+    pub hours: [f64; AXIS_CAPACITY],
 }
 
 impl Default for DecayHalfLives {
     fn default() -> Self {
-        Self {
-            recognition_hours: 24.0 * 30.0,
-            suspicion_hours: 48.0,
-            fear_hours: 72.0,
-            respect_hours: 24.0 * 30.0,
-        }
+        let mut hours = [0.0; AXIS_CAPACITY];
+        hours[Axis::Recognition.index()] = 24.0 * 30.0;
+        hours[Axis::Suspicion.index()] = 48.0;
+        hours[Axis::Fear.index()] = 72.0;
+        hours[Axis::Respect.index()] = 24.0 * 30.0;
+        Self { hours }
+    }
+}
+
+impl Index<Axis> for DecayHalfLives {
+    type Output = f64;
+
+    fn index(&self, axis: Axis) -> &f64 {
+        &self.hours[axis.index()]
+    }
+}
+
+impl IndexMut<Axis> for DecayHalfLives {
+    fn index_mut(&mut self, axis: Axis) -> &mut f64 {
+        &mut self.hours[axis.index()]
     }
 }
 

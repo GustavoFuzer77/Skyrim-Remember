@@ -1,5 +1,5 @@
 use super::*;
-use crate::memory::NpcMemory;
+use crate::memory::{Axis, NpcMemory};
 use crate::tuning::{Limits, Tuning};
 
 fn appearance_item(form_id: u32, slot_mask: u32) -> AppearanceItem {
@@ -250,7 +250,7 @@ fn changing_only_headwear_matches_at_the_initial_seventy_percent_threshold() {
 fn recognition_reduces_the_threshold_from_seventy_to_fifty_percent() {
     let mut store = MemoryStore::new();
     let guard = NpcId::new(123).unwrap();
-    store.get_or_create_at(guard, 1.0).recognition = 100.0;
+    store.get_or_create_at(guard, 1.0)[Axis::Recognition] = 100.0;
 
     let first = store
         .observe_appearance(guard, vec![appearance_item(10, 1 << 2)], false, false, 1.0)

@@ -4,7 +4,7 @@
 //! weighted outfit comparison, and the rules that decide when a new outfit may
 //! be attached to a known identity. [`crate::memory`] only stores the result.
 
-use crate::memory::{MemoryStore, NpcId};
+use crate::memory::{Axis, MemoryStore, NpcId};
 use crate::tuning::AppearanceWeights;
 use serde::{Deserialize, Serialize};
 
@@ -193,7 +193,7 @@ impl MemoryStore {
         visual_continuity: bool,
     ) -> Option<AppearanceObservation> {
         let memory = self.memories.get(&npc_id)?;
-        let threshold = self.tuning.recognition.threshold(memory.recognition);
+        let threshold = self.tuning.recognition.threshold(memory[Axis::Recognition]);
         let known = self.known_appearances(npc_id);
         let mut best_similarity = 0.0_f32;
         let mut best_known_identity_similarity = 0.0_f32;

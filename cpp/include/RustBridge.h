@@ -13,7 +13,32 @@
 // change.
 struct MemoryEngine;
 
-inline constexpr std::uint32_t SkyrimRememberAbiVersion = 7;
+inline constexpr std::uint32_t SkyrimRememberAbiVersion = 8;
+
+// How many axis slots every memory carries. Deliberately larger than the number
+// of axes named below: the spare slots are what let a new axis be named without
+// resizing any struct here or bumping the persisted payload. An older save
+// loads an axis it never knew at zero, which is the correct value.
+inline constexpr std::size_t SkyrimRememberAxisCapacity = 16;
+
+// One dimension of what an NPC feels about the Player. The slot numbers are
+// part of the ABI: Rust indexes the same array by the same values, so
+// reordering these would silently reinterpret every saved memory.
+enum class Axis : std::uint32_t {
+  Recognition = 0,
+  Suspicion = 1,
+  Fear = 2,
+  Respect = 3,
+  // Reserved for the Follower profile; nothing writes these yet.
+  Approval = 4,
+  Loyalty = 5,
+  Resentment = 6,
+  Trust = 7
+};
+
+constexpr std::size_t AxisSlot(Axis axis) {
+  return static_cast<std::size_t>(axis);
+}
 
 enum class BridgeStatus : std::uint32_t {
   Ok = 0,
@@ -27,19 +52,15 @@ enum class BridgeStatus : std::uint32_t {
   UnsupportedVersion = 8
 };
 
+// Indexed with AxisSlot(Axis::...). Slots past the named axes read as zero.
 struct MemorySnapshot {
-  float recognition;
-  float suspicion;
-  float fear;
-  float respect;
+  float axes[SkyrimRememberAxisCapacity];
   double lastDecayGameDays;
 };
 
+// One change per axis slot. A slot left at zero leaves that axis alone.
 struct MemoryDelta {
-  float recognition;
-  float suspicion;
-  float fear;
-  float respect;
+  float axes[SkyrimRememberAxisCapacity];
 };
 
 struct PersistenceStats {
@@ -68,13 +89,19 @@ struct AppearanceResult {
 };
 
 static_assert(std::is_standard_layout_v<MemorySnapshot>);
-static_assert(sizeof(MemorySnapshot) == 24 && alignof(MemorySnapshot) == 8);
-static_assert(offsetof(MemorySnapshot, recognition) == 0);
-static_assert(offsetof(MemorySnapshot, suspicion) == 4);
-static_assert(offsetof(MemorySnapshot, fear) == 8);
-static_assert(offsetof(MemorySnapshot, respect) == 12);
-static_assert(offsetof(MemorySnapshot, lastDecayGameDays) == 16);
-static_assert(sizeof(MemoryDelta) == 16 && alignof(MemoryDelta) == 4);
+static_assert(sizeof(MemorySnapshot) == 72 && alignof(MemorySnapshot) == 8);
+static_assert(offsetof(MemorySnapshot, axes) == 0);
+static_assert(offsetof(MemorySnapshot, lastDecayGameDays) == 64);
+static_assert(sizeof(MemoryDelta) == 64 && alignof(MemoryDelta) == 4);
+static_assert(AxisSlot(Axis::Recognition) == 0);
+static_assert(AxisSlot(Axis::Suspicion) == 1);
+static_assert(AxisSlot(Axis::Fear) == 2);
+static_assert(AxisSlot(Axis::Respect) == 3);
+static_assert(AxisSlot(Axis::Approval) == 4);
+static_assert(AxisSlot(Axis::Loyalty) == 5);
+static_assert(AxisSlot(Axis::Resentment) == 6);
+static_assert(AxisSlot(Axis::Trust) == 7);
+static_assert(AxisSlot(Axis::Trust) < SkyrimRememberAxisCapacity);
 static_assert(sizeof(PersistenceStats) == 8);
 static_assert(sizeof(AppearanceItem) == 8 && alignof(AppearanceItem) == 4);
 static_assert(sizeof(AppearanceResult) == 40 && alignof(AppearanceResult) == 4);

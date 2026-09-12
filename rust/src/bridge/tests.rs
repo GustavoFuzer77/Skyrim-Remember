@@ -1,5 +1,15 @@
 use super::*;
+use crate::memory::{Axis, AXIS_CAPACITY};
 use std::ptr;
+
+/// Builds an axis array from the handful of slots a test cares about.
+fn axes(values: &[(Axis, f32)]) -> [f32; AXIS_CAPACITY] {
+    let mut slots = [0.0; AXIS_CAPACITY];
+    for (axis, value) in values {
+        slots[axis.index()] = *value;
+    }
+    slots
+}
 
 struct Context(*mut MemoryEngine);
 
@@ -18,17 +28,29 @@ impl Drop for Context {
 
 #[test]
 fn abi_layout_matches_cpp_contract() {
-    assert_eq!(std::mem::size_of::<MemorySnapshot>(), 24);
+    // 16 slots of f32 plus the f64 stamp, padded to the f64 alignment.
+    assert_eq!(AXIS_CAPACITY, 16);
+    assert_eq!(std::mem::size_of::<MemorySnapshot>(), 72);
     assert_eq!(std::mem::align_of::<MemorySnapshot>(), 8);
-    assert_eq!(std::mem::offset_of!(MemorySnapshot, recognition), 0);
-    assert_eq!(std::mem::offset_of!(MemorySnapshot, suspicion), 4);
-    assert_eq!(std::mem::offset_of!(MemorySnapshot, fear), 8);
-    assert_eq!(std::mem::offset_of!(MemorySnapshot, respect), 12);
+    assert_eq!(std::mem::offset_of!(MemorySnapshot, axes), 0);
     assert_eq!(
         std::mem::offset_of!(MemorySnapshot, last_decay_game_days),
-        16
+        64
     );
-    assert_eq!(std::mem::size_of::<MemoryDelta>(), 16);
+    assert_eq!(std::mem::size_of::<MemoryDelta>(), 64);
+    assert_eq!(std::mem::align_of::<MemoryDelta>(), 4);
+
+    // The axis slot numbers are ABI: C++ indexes the same array by the same
+    // values, so reordering the enum would silently reinterpret every save.
+    assert_eq!(Axis::Recognition.index(), 0);
+    assert_eq!(Axis::Suspicion.index(), 1);
+    assert_eq!(Axis::Fear.index(), 2);
+    assert_eq!(Axis::Respect.index(), 3);
+    assert_eq!(Axis::Approval.index(), 4);
+    assert_eq!(Axis::Loyalty.index(), 5);
+    assert_eq!(Axis::Resentment.index(), 6);
+    assert_eq!(Axis::Trust.index(), 7);
+    assert!(Axis::ALL.len() <= AXIS_CAPACITY);
     assert_eq!(std::mem::size_of::<PersistenceStats>(), 8);
     assert_eq!(std::mem::size_of::<AppearanceItem>(), 8);
     assert_eq!(std::mem::align_of::<AppearanceItem>(), 4);
@@ -87,8 +109,8 @@ fn appearance_ffi_learns_then_matches_without_mutating_memory_values() {
             BridgeStatus::Ok
         );
     }
-    assert_eq!(memory.recognition, 0.0);
-    assert_eq!(memory.fear, 0.0);
+    assert_eq!(memory[Axis::Recognition], 0.0);
+    assert_eq!(memory[Axis::Fear], 0.0);
 }
 
 #[test]
@@ -141,7 +163,7 @@ fn appearance_evaluation_is_pure_and_reports_normalized_item_count() {
 fn query_does_not_register_and_preserves_output_on_error() {
     let context = Context::new();
     let sentinel = MemorySnapshot {
-        recognition: 7.0,
+        axes: MemoryDelta::of(Axis::Recognition, 7.0).axes,
         ..Default::default()
     };
     let mut snapshot = sentinel;
@@ -194,10 +216,10 @@ fn ffi_persistence_round_trip_is_atomic_and_resolves_form_ids() {
                 context.0,
                 123,
                 10.0,
-                MemoryDelta {
-                    fear: 30.0,
-                    respect: 50.0,
-                    ..MemoryDelta::default()
+                {
+                    let mut delta = MemoryDelta::of(Axis::Fear, 30.0);
+                    delta[Axis::Respect] = 50.0;
+                    delta
                 },
                 &mut snapshot,
             ),
@@ -243,8 +265,8 @@ fn ffi_persistence_round_trip_is_atomic_and_resolves_form_ids() {
             skyrim_remember_get(context.0, 1123, 10.0, &mut snapshot),
             BridgeStatus::Ok
         );
-        assert_eq!(snapshot.fear, 30.0);
-        assert_eq!(snapshot.respect, 50.0);
+        assert_eq!(snapshot[Axis::Fear], 30.0);
+        assert_eq!(snapshot[Axis::Respect], 50.0);
 
         let bad = [1_u8, 2, 3];
         assert_eq!(
@@ -284,10 +306,12 @@ fn registration_preserves_values_and_actors_are_isolated() {
             .lock()
             .unwrap()
             .get_or_create(NpcId::new(123).unwrap()) = NpcMemory {
-            recognition: 11.0,
-            suspicion: 22.0,
-            fear: 33.0,
-            respect: 44.0,
+            axes: axes(&[
+                (Axis::Recognition, 11.0),
+                (Axis::Suspicion, 22.0),
+                (Axis::Fear, 33.0),
+                (Axis::Respect, 44.0),
+            ]),
             last_decay_game_days: 10.0,
         };
         assert_eq!(
@@ -307,15 +331,17 @@ fn registration_preserves_values_and_actors_are_isolated() {
         assert_eq!(
             a,
             MemorySnapshot {
-                recognition: 11.0,
-                suspicion: 22.0,
-                fear: 33.0,
-                respect: 44.0,
+                axes: axes(&[
+                    (Axis::Recognition, 11.0),
+                    (Axis::Suspicion, 22.0),
+                    (Axis::Fear, 33.0),
+                    (Axis::Respect, 44.0),
+                ]),
                 last_decay_game_days: 10.0
             }
         );
         assert_eq!(b.last_decay_game_days, 10.0);
-        assert_eq!(b.fear, 0.0);
+        assert_eq!(b[Axis::Fear], 0.0);
         assert_eq!((*context.0).store.lock().unwrap().len(), 2);
     }
 }
@@ -359,7 +385,7 @@ fn reset_clears_state_and_contexts_are_independent() {
 fn rejects_null_arguments_and_zero_ids_without_mutation() {
     let context = Context::new();
     let mut snapshot = MemorySnapshot {
-        fear: 7.0,
+        axes: axes(&[(Axis::Fear, 7.0)]),
         ..Default::default()
     };
     let mut appearance = AppearanceResult::default();
@@ -410,7 +436,7 @@ fn rejects_null_arguments_and_zero_ids_without_mutation() {
         );
         assert!((*context.0).store.lock().unwrap().is_empty());
     }
-    assert_eq!(snapshot.fear, 7.0);
+    assert_eq!(snapshot[Axis::Fear], 7.0);
     assert_eq!(written, 77);
 }
 

@@ -13,7 +13,7 @@ pub use appearance::{
     AppearanceObservation, KnownAppearance, TECHNICAL_SLOTS,
 };
 
-pub use memory::{MemoryStore, NpcId, NpcMemory};
+pub use memory::{Axis, MemoryStore, NpcId, NpcMemory, AXIS_CAPACITY};
 
 pub use tuning::{
     AppearanceWeights, DecayHalfLives, Limits, ObservationTuning, RecognitionTuning, Tuning,
@@ -23,7 +23,8 @@ pub use tuning::{
 /// Bumped whenever a signature, struct layout, or field meaning changes.
 /// `RustBridge.h` mirrors this as `SkyrimRememberAbiVersion` and `BridgeSmoke`
 /// compares the two at run time.
-pub const ABI_VERSION: u32 = 7;
+pub const ABI_VERSION: u32 = 8;
+
 const INITIALIZED_MESSAGE: &CStr = c"Rust bridge initialized";
 
 pub type SkyrimRememberLogCallback = unsafe extern "C" fn(message: *const c_char);

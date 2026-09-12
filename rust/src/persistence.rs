@@ -1,10 +1,39 @@
 use crate::appearance::{appearance_is_valid, normalize_items};
-use crate::memory::{MemoryStore, NpcId, NpcMemory};
+use crate::memory::{Axis, MemoryStore, NpcId, NpcMemory};
 use crate::tuning::Tuning;
 use crate::{AppearanceItem, KnownAppearance};
 use serde::{Deserialize, Serialize};
 
-pub const PERSISTENCE_VERSION: u32 = 3;
+pub const PERSISTENCE_VERSION: u32 = 4;
+
+/// The four fixed axes every payload before v4 stored.
+///
+/// Kept verbatim so that v1, v2 and v3 saves still decode after `NpcMemory`
+/// became an array of axis slots. Named axes added later need no counterpart
+/// here: they simply load at zero, which is what "this NPC never felt that"
+/// means.
+#[derive(Serialize, Deserialize)]
+struct NpcMemoryLegacy {
+    recognition: f32,
+    suspicion: f32,
+    fear: f32,
+    respect: f32,
+    last_decay_game_days: f64,
+}
+
+impl From<NpcMemoryLegacy> for NpcMemory {
+    fn from(legacy: NpcMemoryLegacy) -> Self {
+        let mut memory = NpcMemory {
+            last_decay_game_days: legacy.last_decay_game_days,
+            ..NpcMemory::default()
+        };
+        memory[Axis::Recognition] = legacy.recognition;
+        memory[Axis::Suspicion] = legacy.suspicion;
+        memory[Axis::Fear] = legacy.fear;
+        memory[Axis::Respect] = legacy.respect;
+        memory
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PersistenceError {
@@ -32,6 +61,21 @@ struct PersistedMemory {
     appearances: Vec<KnownAppearance>,
 }
 
+/// v3 already had per-appearance `identity_known`; only the memory shape
+/// changed in v4.
+#[derive(Serialize, Deserialize)]
+struct PersistedStateV3 {
+    version: u32,
+    memories: Vec<PersistedMemoryV3>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistedMemoryV3 {
+    reference_form_id: u32,
+    memory: NpcMemoryLegacy,
+    appearances: Vec<KnownAppearance>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct PersistedStateV2 {
     version: u32,
@@ -41,7 +85,7 @@ struct PersistedStateV2 {
 #[derive(Serialize, Deserialize)]
 struct PersistedMemoryV2 {
     reference_form_id: u32,
-    memory: NpcMemory,
+    memory: NpcMemoryLegacy,
     appearances: Vec<KnownAppearanceV2>,
 }
 
@@ -61,7 +105,7 @@ struct PersistedStateV1 {
 #[derive(Serialize, Deserialize)]
 struct PersistedMemoryV1 {
     reference_form_id: u32,
-    memory: NpcMemory,
+    memory: NpcMemoryLegacy,
 }
 
 pub fn serialize(store: &MemoryStore) -> Result<Vec<u8>, PersistenceError> {
@@ -157,6 +201,22 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, PersistenceError> {
         PERSISTENCE_VERSION => {
             bincode::deserialize(bytes).map_err(|_| PersistenceError::InvalidData)
         }
+        3 => {
+            let old: PersistedStateV3 =
+                bincode::deserialize(bytes).map_err(|_| PersistenceError::InvalidData)?;
+            Ok(PersistedState {
+                version: PERSISTENCE_VERSION,
+                memories: old
+                    .memories
+                    .into_iter()
+                    .map(|entry| PersistedMemory {
+                        reference_form_id: entry.reference_form_id,
+                        memory: entry.memory.into(),
+                        appearances: entry.appearances,
+                    })
+                    .collect(),
+            })
+        }
         2 => {
             let old: PersistedStateV2 =
                 bincode::deserialize(bytes).map_err(|_| PersistenceError::InvalidData)?;
@@ -167,7 +227,7 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, PersistenceError> {
                     .into_iter()
                     .map(|entry| PersistedMemory {
                         reference_form_id: entry.reference_form_id,
-                        memory: entry.memory,
+                        memory: entry.memory.into(),
                         appearances: entry
                             .appearances
                             .into_iter()
@@ -192,7 +252,7 @@ fn decode_state(bytes: &[u8]) -> Result<PersistedState, PersistenceError> {
                     .into_iter()
                     .map(|entry| PersistedMemory {
                         reference_form_id: entry.reference_form_id,
-                        memory: entry.memory,
+                        memory: entry.memory.into(),
                         appearances: Vec::new(),
                     })
                     .collect(),
