@@ -3,6 +3,7 @@
   "name": "skyrim-remember",
   "version-string": "0.1.0",
   "dependencies": [
-    "commonlibsse-ng-flatrim"
+    "commonlibsse-ng-flatrim",
+    "nlohmann-json"
   ]
 }

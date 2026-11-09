@@ -2,7 +2,7 @@
 
 #include "Appearance.h"
 #include "NpcObservation.h"
-#include "RustBridge.h"
+#include "Memory.h"
 
 #include <chrono>
 #include <cstdint>
@@ -25,12 +25,12 @@ struct IdentityObservation {
 
 // Learns and evaluates what the Player looks like for every observing NPC.
 //
-// This is the only gameplay-side component that talks to the appearance bridge.
+// This is the only gameplay-side component that talks to the memory store.
 // It deliberately knows nothing about guards, followers, citizens, merchants,
 // or what any of them should do with the recognition result.
 class AppearanceMemoryService {
 public:
-  void Configure(MemoryEngine *memoryEngine);
+  void Configure(MemoryStore *memoryStore);
 
   // Gameplay is running and the store is usable.
   void SetSessionActive(bool value);
@@ -52,7 +52,7 @@ public:
   // pass captures the Player once; every other observer shares that snapshot.
   void BeginObservationPass();
 
-  // One NPC perceived the Player. Returns no result when the session or bridge
+  // One NPC perceived the Player. Returns no result when the session or store
   // is unavailable.
   std::optional<IdentityObservation> Observe(const NpcObservationContext &context, const PerceptionOutcome &outcome, bool appearanceChanged);
 
@@ -73,26 +73,26 @@ private:
   // What the memory half of one observation costs, aggregated per interval.
   //
   // The service already times this whole block as "reportUs"; this splits it
-  // into the part that reads the game and the part that crosses the bridge, so
+  // into the part that reads the game and the part that calls the memory store, so
   // a regression names its own cause.
   struct AdapterMetrics {
     std::uint64_t passes = 0;
     std::uint64_t routine = 0;
     std::uint64_t transitions = 0;
     std::uint64_t appearanceCaptures = 0;
-    std::uint64_t bridgeCalls = 0;
+    std::uint64_t storeCalls = 0;
     std::uint64_t failures = 0;
     std::chrono::microseconds capturing{0};
-    std::chrono::microseconds bridging{0};
+    std::chrono::microseconds remembering{0};
   };
 
   void ReportMetrics();
 
   CapturedAppearance Capture();
 
-  BridgeStatus Register(std::uint32_t observer, double gameDays);
+  MemoryStatus Register(std::uint32_t observer, double gameDays);
 
-  BridgeStatus Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
+  MemoryStatus Query(std::uint32_t observer, const CapturedAppearance &appearance, bool visualContinuity, bool learn, double gameDays,
                      AppearanceResult &result);
 
   std::optional<IdentityObservation> ObserveRoutine(const NpcObservationContext &context, const PerceptionOutcome &outcome);
@@ -106,7 +106,7 @@ private:
 
   void PruneObserverStates();
 
-  MemoryEngine *engine = nullptr;
+  MemoryStore *store = nullptr;
   AdapterMetrics metrics;
   Clock::time_point lastMetrics;
   std::optional<CapturedAppearance> lastPlayerAppearance;

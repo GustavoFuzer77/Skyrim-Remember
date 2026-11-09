@@ -5,13 +5,7 @@
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}/build/clang-release"
   ],
-  "rust-analyzer.linkedProjects": [
-    "${workspaceFolder}/rust/Cargo.toml"
-  ],
   "[cpp]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
-  },
-  "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
   }
 }

@@ -1,5 +1,4 @@
 /build/
-/rust/target/
 /vcpkg_installed/
 *.log
 *.obj

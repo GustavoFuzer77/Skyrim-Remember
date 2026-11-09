@@ -1,5 +1,4 @@
 #include "Runtime.h"
-#include "RustBridge.h"
 
 #include <SKSE/API.h>
 #include <SKSE/Logger.h>
@@ -34,14 +33,6 @@ bool InitializeLogging() {
   }
 }
 
-void RustLogCallback(const char *message) noexcept {
-  try {
-    SKSE::log::info("[Rust] {}", message != nullptr ? message : "<null>");
-  } catch (...) {
-    OutputDebugString("Skyrim Remember: Rust log callback failed\n");
-  }
-}
-
 } // namespace
 
 // SKSEPluginLoad expects a SKSE::LoadInterface entry point to load the plugin.
@@ -55,19 +46,6 @@ SKSEPluginLoad(const SKSE::LoadInterface *skse) {
     SKSE::Init(skse);
     SKSE::log::info("Skyrim Remember SKSE plugin loaded");
 
-    const auto actualAbiVersion = skyrim_remember_abi_version();
-
-    if (actualAbiVersion != SkyrimRememberAbiVersion) {
-      SKSE::log::critical("Rust bridge ABI mismatch: expected {}, received {}", SkyrimRememberAbiVersion, actualAbiVersion);
-      return false;
-    }
-
-    if (!skyrim_remember_initialize(&RustLogCallback)) {
-      SKSE::log::critical("Rust bridge initialization failed");
-      return false;
-    }
-
-    SKSE::log::info("C++ -> Rust bridge initialized successfully");
     // Register callbacks last: after registration succeeds the plugin must stay
     // loaded.
     return SkyrimRemember::RegisterRuntime();

@@ -25,11 +25,6 @@
     {
       "name": "clang-release",
       "configurePreset": "clang-release"
-    },
-    {
-      "name": "rust-tests",
-      "configurePreset": "clang-release",
-      "targets": ["rust_tests"]
     }
   ]
 }

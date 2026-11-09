@@ -9,14 +9,14 @@ namespace SkyrimRemember {
 // What one guard's observation means, before any spam control.
 //
 // A change into recognition is a reaction, including the first one of a
-// session or of a new encounter. The very first sighting is not: the Rust core
+// session or of a new encounter. The very first sighting is not: the memory store
 // calls a visible face "recognized" even when the guard has no memory yet, and
 // a stranger learning the Player's face does not recognize anyone.
 constexpr GuardReaction DecideGuardReaction(const IdentityObservation &identity) {
   if (!identity.recognitionChanged) {
     return GuardReaction::None;
   }
-  if (identity.appearance.recognized == 0) {
+  if (!identity.appearance.recognized) {
     return GuardReaction::Unrecognized;
   }
   return identity.newObserver ? GuardReaction::None : GuardReaction::Recognized;

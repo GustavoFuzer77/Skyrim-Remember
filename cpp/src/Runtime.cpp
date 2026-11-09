@@ -2,12 +2,12 @@
 #include "AppearanceMemoryService.h"
 #include "EquipmentBatch.h"
 #include "ImpressionRules.h"
+#include "Memory.h"
 #include "NpcObservationService.h"
 #include "NpcProfile.h"
 #include "ObservationTuning.h"
 #include "Persistence.h"
 #include "ProfileReactionRouter.h"
-#include "RustBridge.h"
 
 #include <RE/M/MenuOpenCloseEvent.h>
 #include <RE/P/PlayerCharacter.h>
@@ -32,7 +32,7 @@ void LogCallbackFailure(const char *message) noexcept {
   }
 }
 
-// Owns the session: the Rust engine, universal appearance memory, profile
+// Owns the session: the memory store, universal appearance memory, profile
 // reactions, the scan and the equipment batch. Everything below runs on
 // Skyrim's main thread.
 class Runtime final : public RE::BSTEventSink<RE::TESEquipEvent>, public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
@@ -48,9 +48,9 @@ public:
     const auto serialization = SKSE::GetSerializationInterface();
     const auto tasks = SKSE::GetTaskInterface();
 
-    engine.reset(skyrim_remember_create());
+    store = std::make_unique<MemoryStore>();
 
-    if (!engine || !messaging || !serialization || !tasks) {
+    if (!messaging || !serialization || !tasks) {
       return false;
     }
 
@@ -58,7 +58,7 @@ public:
       return false;
     }
 
-    appearanceMemory.Configure(engine.get());
+    appearanceMemory.Configure(store.get());
 
     // Runtime is a function-local static, so it outlives every task the batch
     // and the observation service schedule.
@@ -121,14 +121,13 @@ private:
   bool playing = false;
   bool sessionReady = false;
 
-  using EnginePtr = std::unique_ptr<MemoryEngine, decltype(&skyrim_remember_destroy)>; // <tipo do pointer, tipo do deleter>
-  EnginePtr engine{nullptr, skyrim_remember_destroy};
+  std::unique_ptr<MemoryStore> store;
 
   AppearanceMemoryService appearanceMemory;
   ProfileReactionRouter reactions;
 
   // Declared last on purpose: its destructor stops and joins the timer thread
-  // before the adapters and the engine its tasks reach into are destroyed.
+  // before the adapters and the store its tasks reach into are destroyed.
   NpcObservationService observations;
 
   void SetPlaying(bool value) {
@@ -173,7 +172,7 @@ private:
         SKSE::log::error("Persistence save skipped: no gameplay session");
         return;
       }
-      Persistence::Save(runtime.engine.get(), serialization);
+      Persistence::Save(runtime.store.get(), serialization);
     } catch (...) {
       LogCallbackFailure("Persistence save callback failed with an exception");
     }
@@ -237,7 +236,7 @@ private:
     if (!rulesLoaded) {
       // Rules outlive every load and new game: they describe the installed mods,
       // not a save. Loading them once here is what keeps a reload cheap.
-      const auto rules = ImpressionRules::Load(engine.get());
+      const auto rules = ImpressionRules::Load(store.get());
       appearanceMemory.SetImpressionsEnabled(rules.boundReferences > 0);
       rulesLoaded = true;
     }
@@ -275,9 +274,9 @@ private:
 
   void Reset(const char *reason) {
     PrepareForLoad(reason);
-    const auto status = skyrim_remember_clear(engine.get());
-    sessionReady = status == BridgeStatus::Ok;
-    SKSE::log::info("Memory reset: reason={} status={}", reason, static_cast<std::uint32_t>(status));
+    store->Clear();
+    sessionReady = true;
+    SKSE::log::info("Memory reset: reason={}", reason);
   }
 
   void PrepareForLoad(const char *reason) {
@@ -292,7 +291,7 @@ private:
 
   void Load(SKSE::SerializationInterface *serialization) {
     sessionReady = false;
-    const auto outcome = Persistence::Load(engine.get(), serialization);
+    const auto outcome = Persistence::Load(store.get(), serialization);
     sessionReady = outcome == Persistence::LoadOutcome::Restored || outcome == Persistence::LoadOutcome::NoData;
   }
 };

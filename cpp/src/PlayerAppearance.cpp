@@ -65,8 +65,8 @@ CapturedAppearance CapturePlayerAppearance() {
   std::ranges::sort(keywords);
   const auto duplicates = std::ranges::unique(keywords);
   keywords.erase(duplicates.begin(), duplicates.end());
-  if (keywords.size() > SkyrimRememberMaxWornKeywords) {
-    keywords.resize(SkyrimRememberMaxWornKeywords);
+  if (keywords.size() > maxWornKeywords) {
+    keywords.resize(maxWornKeywords);
   }
   captured.keywords = std::move(keywords);
   return captured;

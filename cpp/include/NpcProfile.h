@@ -23,7 +23,7 @@ const char *ProfileName(NpcProfile profile);
 
 // Places one humanoid NPC, or returns no profile for the Player and creatures.
 // Cheap, data-driven, and free of side effects: it must not create memory,
-// capture appearance, or reach the Rust core.
+// capture appearance, or reach the memory store.
 std::optional<NpcProfile> ClassifyNpc(RE::Actor &actor);
 
 // The single switch deciding which profiles receive universal appearance

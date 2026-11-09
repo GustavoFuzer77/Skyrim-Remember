@@ -1,13 +1,13 @@
 #pragma once
 
-#include "RustBridge.h"
+#include "Memory.h"
 
 #include <cstdint>
 #include <span>
 #include <vector>
 
 // Everything in this header is free of Skyrim dependencies on purpose: it is
-// the half of the appearance capture that can be exercised by BridgeSmoke
+// the half of the appearance capture that can be exercised by MemoryTests
 // without the game installed. PlayerAppearance.cpp owns the half that reads
 // the live PlayerCharacter and static_asserts these constants against
 // CommonLibSSE's own enum.
@@ -50,7 +50,7 @@ struct WornPiece {
   std::uint32_t slotMask = 0;
 };
 
-// The Player's outfit in the shape the Rust core expects.
+// The Player's outfit in the shape the memory store expects.
 struct CapturedAppearance {
   std::vector<AppearanceItem> items;
   // Keyword FormIDs carried by the worn items, sorted and unique. Impression

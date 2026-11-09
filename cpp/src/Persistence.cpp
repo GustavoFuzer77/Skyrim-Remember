@@ -1,39 +1,19 @@
 #include "Persistence.h"
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace SkyrimRemember::Persistence {
 
-bool ResolveFormID(void *context, std::uint32_t oldFormID, std::uint32_t *newFormID) noexcept {
-  if (!context || !newFormID) {
-    return false;
-  }
-  auto *serialization = static_cast<SKSE::SerializationInterface *>(context);
-  RE::FormID resolved = 0;
-  if (!serialization->ResolveFormID(oldFormID, resolved)) {
-    return false;
-  }
-  *newFormID = resolved;
-  return true;
-}
-
-bool Save(const MemoryEngine *engine, SKSE::SerializationInterface *serialization) {
-  if (!serialization || !engine) {
+bool Save(const MemoryStore *store, SKSE::SerializationInterface *serialization) {
+  if (!serialization || !store) {
     SKSE::log::error("Persistence save skipped: unavailable interface");
     return false;
   }
-  std::size_t bytesRequired = 0;
-  auto status = skyrim_remember_serialize(engine, nullptr, 0, &bytesRequired);
-  if (status != BridgeStatus::Ok || bytesRequired == 0 || bytesRequired > MaximumRecordBytes) {
-    SKSE::log::error("Persistence size query failed: status={} bytes={}", static_cast<std::uint32_t>(status), bytesRequired);
-    return false;
-  }
-  std::vector<std::uint8_t> bytes(bytesRequired);
-  std::size_t bytesWritten = 0;
-  status = skyrim_remember_serialize(engine, bytes.data(), bytes.size(), &bytesWritten);
-  if (status != BridgeStatus::Ok || bytesWritten != bytes.size()) {
-    SKSE::log::error("Persistence serialization failed: status={} bytes={}/{}", static_cast<std::uint32_t>(status), bytesWritten, bytes.size());
+  const auto bytes = store->Serialize();
+  if (bytes.empty() || bytes.size() > MaximumRecordBytes) {
+    SKSE::log::error("Persistence payload unusable: bytes={}", bytes.size());
     return false;
   }
   if (!serialization->WriteRecord(MemoryRecordType, RecordEnvelopeVersion, bytes.data(), static_cast<std::uint32_t>(bytes.size()))) {
@@ -44,8 +24,8 @@ bool Save(const MemoryEngine *engine, SKSE::SerializationInterface *serializatio
   return true;
 }
 
-LoadOutcome Load(const MemoryEngine *engine, SKSE::SerializationInterface *serialization) {
-  if (!serialization || !engine) {
+LoadOutcome Load(MemoryStore *store, SKSE::SerializationInterface *serialization) {
+  if (!serialization || !store) {
     SKSE::log::error("Persistence load skipped: unavailable interface");
     return LoadOutcome::Unavailable;
   }
@@ -71,9 +51,16 @@ LoadOutcome Load(const MemoryEngine *engine, SKSE::SerializationInterface *seria
       SKSE::log::error("Persistence record truncated: bytes={}/{}", read, length);
       continue;
     }
-    PersistenceStats stats{};
-    const auto status = skyrim_remember_deserialize(engine, bytes.data(), bytes.size(), ResolveFormID, serialization, &stats);
-    if (status != BridgeStatus::Ok) {
+    PersistenceStats stats;
+    const auto resolve = [serialization](std::uint32_t oldFormID) -> std::optional<std::uint32_t> {
+      RE::FormID resolved = 0;
+      if (!serialization->ResolveFormID(oldFormID, resolved)) {
+        return std::nullopt;
+      }
+      return resolved;
+    };
+    const auto status = store->Deserialize(bytes, resolve, stats);
+    if (status != MemoryStatus::Ok) {
       SKSE::log::error("Memory restore failed: status={}", static_cast<std::uint32_t>(status));
       continue;
     }
@@ -89,9 +76,9 @@ LoadOutcome Load(const MemoryEngine *engine, SKSE::SerializationInterface *seria
                         "for this loaded session");
     return LoadOutcome::Rejected;
   }
-  const auto cleared = skyrim_remember_clear(engine);
-  SKSE::log::info("No Skyrim Remember data found in this save: clearStatus={}", static_cast<std::uint32_t>(cleared));
-  return cleared == BridgeStatus::Ok ? LoadOutcome::NoData : LoadOutcome::Unavailable;
+  store->Clear();
+  SKSE::log::info("No Skyrim Remember data found in this save");
+  return LoadOutcome::NoData;
 }
 
 } // namespace SkyrimRemember::Persistence

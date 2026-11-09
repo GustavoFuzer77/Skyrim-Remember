@@ -6,7 +6,7 @@
 #include <string>
 #include <unordered_map>
 
-// Game-free on purpose: the notice policy is plain logic and BridgeSmoke tests
+// Game-free on purpose: the notice policy is plain logic and MemoryTests test
 // it without Skyrim.
 namespace SkyrimRemember {
 
@@ -41,7 +41,7 @@ struct GuardNoticeSummary {
 // Turns per-guard reactions into few, grouped HUD notices.
 //
 // It never decides whether a guard recognizes the Player — each guard's memory
-// and threshold live in the Rust core. It only decides whether telling the
+// and threshold live in the memory store. It only decides whether telling the
 // Player about it now is news or spam.
 class GuardNoticeBoard {
 public:

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "RustBridge.h"
+#include "Memory.h"
 
-// Finds the impression rule files, hands them to the Rust core, and resolves
+// Finds the impression rule files, hands them to the memory store, and resolves
 // every keyword and Form they mention against the loaded game data.
 //
 // What an item makes an NPC feel is data, not code: adding a rule never means
@@ -18,6 +18,6 @@ inline constexpr const char *fileSuffix = "_Rules.json";
 // Loads every rule file in name order, then binds what they reference. Call
 // once, on the main thread, after kDataLoaded. A broken file is logged and
 // skipped; the others still load.
-RulesSummary Load(const MemoryEngine *engine);
+RulesSummary Load(MemoryStore *store);
 
 } // namespace SkyrimRemember::ImpressionRules

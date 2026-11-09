@@ -46,38 +46,7 @@ patch_commonlibsse_header("RE/G/GHashSetBase.h"
     "a_src.begin(); it != a_src.end();"
     "Scaleform")
 
-set(RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.toml")
-set(RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
-set(RUST_LIBRARY "${RUST_TARGET_DIR}/release/skyrim_remember_core.lib")
-file(GLOB_RECURSE RUST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/rust/src/*.rs")
-
-add_custom_command(
-    OUTPUT "${RUST_LIBRARY}"
-    COMMAND cargo build
-        --manifest-path "${RUST_MANIFEST}"
-        --target-dir "${RUST_TARGET_DIR}"
-        --release
-        --locked
-    DEPENDS
-        "${RUST_MANIFEST}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.lock"
-        ${RUST_SOURCES}
-    COMMENT "Building the Rust memory core"
-    VERBATIM
-)
-
-add_custom_target(skyrim_remember_rust_build DEPENDS "${RUST_LIBRARY}")
-
-add_library(skyrim_remember_rust STATIC IMPORTED GLOBAL)
-set_target_properties(skyrim_remember_rust PROPERTIES
-    IMPORTED_LOCATION "${RUST_LIBRARY}"
-)
-add_dependencies(skyrim_remember_rust skyrim_remember_rust_build)
-
-# Transitive native dependencies of the Rust standard library on Windows MSVC.
-set_property(TARGET skyrim_remember_rust PROPERTY INTERFACE_LINK_LIBRARIES
-    "ntdll;userenv;ws2_32;dbghelp")
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_commonlibsse_plugin(${PROJECT_NAME}
     NAME "Skyrim Remember"
@@ -94,17 +63,21 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/NpcObservationService.h
         cpp/include/NpcProfile.h
         cpp/include/ObservationTuning.h
+        cpp/include/Memory.h
+        cpp/include/MemoryTuning.h
         cpp/include/Persistence.h
         cpp/include/PlayerAppearance.h
         cpp/include/ProfileReactionRouter.h
         cpp/include/Runtime.h
-        cpp/include/RustBridge.h
+        cpp/include/RuleBook.h
         cpp/src/Appearance.cpp
         cpp/src/AppearanceMemoryService.cpp
         cpp/src/EquipmentBatch.cpp
         cpp/src/GuardNotices.cpp
         cpp/src/GuardReactionAdapter.cpp
         cpp/src/ImpressionRules.cpp
+        cpp/src/Memory.cpp
+        cpp/src/MemorySerialization.cpp
         cpp/src/NpcClassification.cpp
         cpp/src/NpcObservation.cpp
         cpp/src/NpcObservationService.cpp
@@ -113,35 +86,37 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/src/Plugin.cpp
         cpp/src/PlayerAppearance.cpp
         cpp/src/ProfileReactionRouter.cpp
+        cpp/src/RuleBook.cpp
         cpp/src/Runtime.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE cpp/include)
-target_link_libraries(${PROJECT_NAME} PRIVATE skyrim_remember_rust)
+target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_precompile_headers(${PROJECT_NAME} PRIVATE cpp/include/PCH.h)
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /permissive- /EHsc)
 endif()
 
-add_custom_target(rust_tests
-    COMMAND cargo test --manifest-path "${RUST_MANIFEST}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Running Rust unit tests"
-    VERBATIM
-)
-
 include(CTest)
 if(BUILD_TESTING)
     # These sources are deliberately free of Skyrim dependencies so that the
-    # outfit merge, the face rule and the profile policy can be tested without
-    # the game installed.
-    add_executable(BridgeSmoke
-        cpp/tests/BridgeSmoke.cpp
+    # memory model, the outfit merge, the face rule and the profile policy can
+    # be tested without the game installed.
+    add_executable(MemoryTests
+        cpp/tests/MemoryTests.cpp
         cpp/src/Appearance.cpp
         cpp/src/GuardNotices.cpp
-        cpp/src/NpcProfile.cpp)
-    target_include_directories(BridgeSmoke PRIVATE cpp/include)
-    target_link_libraries(BridgeSmoke PRIVATE skyrim_remember_rust)
-    add_test(NAME bridge_smoke COMMAND BridgeSmoke)
+        cpp/src/Memory.cpp
+        cpp/src/MemorySerialization.cpp
+        cpp/src/NpcProfile.cpp
+        cpp/src/RuleBook.cpp)
+    target_include_directories(MemoryTests PRIVATE cpp/include)
+    target_link_libraries(MemoryTests PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(MemoryTests PRIVATE
+        SHIPPED_RULES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/SKSE/Plugins/SkyrimRemember/SkyrimRemember_Rules.json")
+    if(MSVC)
+        target_compile_options(MemoryTests PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME memory_tests COMMAND MemoryTests)
 endif()

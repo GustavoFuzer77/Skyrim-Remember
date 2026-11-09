@@ -1,7 +1,7 @@
 #include "NpcProfile.h"
 
 // Deliberately free of Skyrim dependencies: the profile policy is the part of
-// classification that can be exercised by BridgeSmoke without the game.
+// classification that can be exercised by MemoryTests without the game.
 // NpcClassification.cpp holds the half that reads a live Actor.
 
 namespace SkyrimRemember {

@@ -152,7 +152,7 @@ bool NpcObservationService::Examine(RE::Actor &actor, RE::PlayerCharacter &playe
   ++metrics.observed;
   if (observer) {
     // Everything downstream: reading the context, capturing the Player's
-    // appearance, and the calls across the Rust bridge.
+    // appearance, and the calls into the memory store.
     const auto reportStarted = Clock::now();
     observer(actor, DescribeObservation(actor, *profile), outcome, trigger);
     metrics.reporting += Since(reportStarted);

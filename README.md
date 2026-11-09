@@ -248,8 +248,8 @@ logged and skipped. Look for `Impression rules` in `SkyrimRemember.log`.
 
 ## Building from source
 
-You will need CMake 3.25+, Ninja, LLVM (`clang-cl`), the MSVC build tools, a
-Rust toolchain targeting `x86_64-pc-windows-msvc`, and vcpkg.
+You will need CMake 3.25+, Ninja, LLVM (`clang-cl`), the MSVC build tools and
+vcpkg.
 
 ```
 cmake --preset clang-release
@@ -259,9 +259,6 @@ ctest --test-dir build/clang-release
 
 The result is `build/clang-release/SkyrimRemember.dll`.
 
-The recognition logic lives in a Rust core that knows nothing about Skyrim, so
-most of it can be tested without the game running:
-
-```
-cargo test --manifest-path rust/Cargo.toml
-```
+The memory model, recognition and impression rules know nothing about Skyrim,
+so most of the mod is tested without the game running: `ctest` builds and runs
+`MemoryTests` from `cpp/tests`.
