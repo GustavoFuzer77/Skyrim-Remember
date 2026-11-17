@@ -6,7 +6,7 @@
 #include <string>
 #include <unordered_map>
 
-// Game-free on purpose: the notice policy is plain logic and MemoryTests test
+// Game-free on purpose: the notice policy is plain logic and the tests cover
 // it without Skyrim.
 namespace SkyrimRemember {
 

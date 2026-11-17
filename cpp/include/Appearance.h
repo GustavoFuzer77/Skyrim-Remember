@@ -7,7 +7,7 @@
 #include <vector>
 
 // Everything in this header is free of Skyrim dependencies on purpose: it is
-// the half of the appearance capture that can be exercised by MemoryTests
+// the half of the appearance capture that can be exercised by the tests
 // without the game installed. PlayerAppearance.cpp owns the half that reads
 // the live PlayerCharacter and static_asserts these constants against
 // CommonLibSSE's own enum.

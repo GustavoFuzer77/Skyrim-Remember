@@ -103,20 +103,35 @@ if(BUILD_TESTING)
     # These sources are deliberately free of Skyrim dependencies so that the
     # memory model, the outfit merge, the face rule and the profile policy can
     # be tested without the game installed.
-    add_executable(MemoryTests
-        cpp/tests/MemoryTests.cpp
+    find_package(doctest CONFIG REQUIRED)
+
+    add_executable(SkyrimRememberTests
+        cpp/tests/TestMain.cpp
+        cpp/tests/TestSupport.h
+        cpp/tests/HostPolicyTests.cpp
+        cpp/tests/MemoryModelTests.cpp
+        cpp/tests/RecognitionTests.cpp
+        cpp/tests/PersistenceTests.cpp
+        cpp/tests/RuleTests.cpp
         cpp/src/Appearance.cpp
         cpp/src/GuardNotices.cpp
         cpp/src/Memory.cpp
         cpp/src/MemorySerialization.cpp
         cpp/src/NpcProfile.cpp
         cpp/src/RuleBook.cpp)
-    target_include_directories(MemoryTests PRIVATE cpp/include)
-    target_link_libraries(MemoryTests PRIVATE nlohmann_json::nlohmann_json)
-    target_compile_definitions(MemoryTests PRIVATE
+    target_include_directories(SkyrimRememberTests PRIVATE cpp/include cpp/tests)
+    target_link_libraries(SkyrimRememberTests PRIVATE nlohmann_json::nlohmann_json doctest::doctest)
+    target_compile_definitions(SkyrimRememberTests PRIVATE
         SHIPPED_RULES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/SKSE/Plugins/SkyrimRemember/SkyrimRemember_Rules.json")
     if(MSVC)
-        target_compile_options(MemoryTests PRIVATE /W4 /permissive- /EHsc)
+        target_compile_options(SkyrimRememberTests PRIVATE /W4 /permissive- /EHsc)
     endif()
-    add_test(NAME memory_tests COMMAND MemoryTests)
+
+    # One CTest entry per test file, so a failure says which area broke and
+    # `ctest -R rules` runs only that area. Each suite name matches a
+    # TEST_SUITE_BEGIN in its file.
+    foreach(suite "host policy" "memory model" "recognition" "persistence" "rules")
+        string(REPLACE " " "_" test_name "${suite}")
+        add_test(NAME ${test_name} COMMAND SkyrimRememberTests "--test-suite=${suite}")
+    endforeach()
 endif()

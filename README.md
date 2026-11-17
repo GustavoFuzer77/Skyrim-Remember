@@ -260,5 +260,7 @@ ctest --test-dir build/clang-release
 The result is `build/clang-release/SkyrimRemember.dll`.
 
 The memory model, recognition and impression rules know nothing about Skyrim,
-so most of the mod is tested without the game running: `ctest` builds and runs
-`MemoryTests` from `cpp/tests`.
+so most of the mod is tested without the game running. `ctest` runs
+`SkyrimRememberTests`, built from `cpp/tests` with doctest, as one entry per
+area (`host_policy`, `memory_model`, `recognition`, `persistence`, `rules`);
+`ctest -R rules` runs one of them. A new `TEST_CASE` registers itself.
