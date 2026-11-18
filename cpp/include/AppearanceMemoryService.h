@@ -4,6 +4,7 @@
 #include "NpcObservation.h"
 #include "Memory.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -21,6 +22,9 @@ struct IdentityObservation {
   // a first sighting, the first observation after a load, or a new encounter
   // after the observer went unseen long enough to be pruned.
   bool recognitionChanged = false;
+  // This observer's memory once the observation, and any impression it caused,
+  // has been applied. Reactions read their axes here instead of asking again.
+  std::array<float, axisCapacity> axes{};
 };
 
 // Learns and evaluates what the Player looks like for every observing NPC.
@@ -105,6 +109,8 @@ private:
   void Impress(const NpcObservationContext &context, const PerceptionOutcome &outcome, const CapturedAppearance &appearance, double gameDays);
 
   void PruneObserverStates();
+
+  IdentityObservation Identify(std::uint32_t observer, const AppearanceResult &result, bool newObserver, bool recognitionChanged) const;
 
   MemoryStore *store = nullptr;
   AdapterMetrics metrics;

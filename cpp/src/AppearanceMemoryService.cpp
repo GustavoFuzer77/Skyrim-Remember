@@ -189,6 +189,17 @@ void AppearanceMemoryService::Impress(const NpcObservationContext &context, cons
                   outcome.distance);
 }
 
+IdentityObservation AppearanceMemoryService::Identify(std::uint32_t observer, const AppearanceResult &result, bool newObserver,
+                                                      bool recognitionChanged) const {
+  IdentityObservation identity{result, newObserver, recognitionChanged};
+  // The observation just brought this memory to the current game time, so the
+  // stored levels are the current ones.
+  if (const auto memory = store->Find(observer)) {
+    identity.axes = memory->axes;
+  }
+  return identity;
+}
+
 void AppearanceMemoryService::PruneObserverStates() {
   // Only the last verdict is forgotten here, never the memory in the store:
   // an observer unseen this long meets the Player again as a new encounter.
@@ -248,7 +259,7 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveRoutine(const
   if (result.recognized) {
     Impress(context, outcome, *routineAppearance, *gameDays);
   }
-  return IdentityObservation{result, registered == MemoryStatus::Created, recognitionChanged};
+  return Identify(observer, result, registered == MemoryStatus::Created, recognitionChanged);
 }
 
 std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(const NpcObservationContext &context, const PerceptionOutcome &outcome) {
@@ -294,7 +305,7 @@ std::optional<IdentityObservation> AppearanceMemoryService::ObserveTransition(co
   if (after.recognized) {
     Impress(context, outcome, transitionCurrent, *gameDays);
   }
-  return IdentityObservation{after, registered == MemoryStatus::Created, recognitionChanged};
+  return Identify(observer, after, registered == MemoryStatus::Created, recognitionChanged);
 }
 
 bool AppearanceMemoryService::BeginAppearanceTransition(std::uint64_t batchedEvents) {

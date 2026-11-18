@@ -102,6 +102,21 @@ townsperson grows suspicious and a little afraid, and your follower does not
 care. All of it lives in rule files, not in the plugin — see
 [Impression rules](#impression-rules).
 
+### Guards who suspect you enough attack you
+
+A guard whose suspicion of you reaches 35 — which bandit armour does, and hide
+armour alone does not — draws his weapon and attacks once he recognises you.
+It is his memory that acts, not your outfit: change out of the bandit armour in
+front of him and he still remembers what he saw until the suspicion fades,
+which takes some hours of in-game time.
+
+Yield and the fight ends like any other. The same guard waits two minutes of
+real time before he starts another one, so surrendering is not answered by an
+instant rematch.
+
+The threshold, the wait and the whole behaviour can be changed while playing
+from the [debug panel](#in-game-debug-panel).
+
 ### Memory fades
 
 Nothing is remembered forever, and each feeling fades at its own pace.
@@ -137,6 +152,9 @@ you.
 - Everything saved in and restored from your save file
 - Outfits that make NPCs suspicious — bandit armour by default — driven by rule
   files anyone can extend
+- Guards suspicious enough of you attack you
+- An in-game debug panel and live overlay, with SKSE Menu Framework
+- Papyrus functions other mods can call to read and feed NPC memories
 - A HUD notice when a guard recognises you — including the first time — or
   stops recognising you. Guards recognising you together share one notice,
   and the same guard is not announced again within a few minutes. A guard
@@ -145,22 +163,25 @@ you.
 
 **Not built yet**
 
-Right now NPCs remember, and that is all they do. There is no dialogue,
-no crime or bounty behaviour, no gossip between NPCs, no shopkeeper reactions,
-and followers do not use any of it. Those come later — this release is the
-foundation they will be built on.
+Attacking you is the one thing a memory makes anyone do so far. There is no
+dialogue, no crime or bounty behaviour of the mod's own, no gossip between NPCs,
+no shopkeeper reactions, and followers do not use any of it. Those come later.
 
 All nearby NPC profiles can form appearance memories and impressions. Guards —
-of every hold — are the only profile with a reaction adapter at the moment, and
-its first visible effect is deliberately limited to recognition notices.
-Suspicion and fear are remembered, but nothing acts on them yet. Followers,
-citizens and merchants are recognised as categories but do not react yet.
+of every hold — are the only profile with a reaction adapter at the moment: the
+recognition notices and the attack. Fear and respect are remembered, but
+nothing acts on them yet. Followers, citizens and merchants are recognised as
+categories but do not react yet.
 
 ## Requirements
 
 - Skyrim Special Edition or Anniversary Edition
 - [SKSE64](https://skse.silverlock.org/)
 - Address Library for SKSE Plugins
+
+Optional: [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352)
+for the [debug panel](#in-game-debug-panel). Without it the mod runs the same,
+just without the panel.
 
 Install it like any other SKSE plugin: the `.dll` goes in
 `Data/SKSE/Plugins/`, and the `data/SKSE/Plugins/SkyrimRemember/` folder from
@@ -181,6 +202,39 @@ Guards are recognised by the game's own guard flag — the one its crime and
 dialogue systems use — not by a list of factions. Guards of every hold, guards
 swapped by the Civil War questline, and guards added by other mods are all
 treated as guards without a patch.
+
+## In-game debug panel
+
+With SKSE Menu Framework installed, open its Mod Control Panel and pick
+**Skyrim Remember → Memory debugger**. It shows:
+
+- whether the rules loaded and how many of their keywords and forms were found
+  in your load order;
+- every NPC that perceived you in the last 20 seconds, nearest first: whether
+  they recognise you, how close your outfit is to one they know against the bar
+  they need, their recognition, suspicion, fear and respect, and — for guards —
+  what the hostility rule decided (`calm`, `attack`, `in combat`,
+  `cooling down`, `not recognized`);
+- the hostility switch, threshold and wait, which take effect at once.
+
+A compact overlay with the nearest eight NPCs is drawn over the HUD while you
+play, without pausing the game or taking input. It can be hidden from the same
+page. Nothing set here is saved.
+
+## For script authors
+
+`data/Source/Scripts/SkyrimRemember.psc` declares the plugin's Papyrus
+functions. Compile it with the Creation Kit's Papyrus compiler and ship the
+`.pex` with any mod that calls them:
+
+```papyrus
+Float level = SkyrimRemember.GetAxis(akGuard, "suspicion")   ; 0..100, -1 on bad arguments
+Bool known = SkyrimRemember.HasMemory(akGuard)
+SkyrimRemember.ModAxis(akGuard, "respect", 10.0)             ; feed an event the plugin cannot see
+```
+
+Axis names are `recognition`, `suspicion`, `fear`, `respect`, `approval`,
+`loyalty`, `resentment` and `trust`.
 
 ## Impression rules
 

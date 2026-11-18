@@ -1,6 +1,8 @@
 #pragma once
 
 #include "AppearanceMemoryService.h"
+#include "DebugBoard.h"
+#include "GuardHostility.h"
 #include "GuardNotices.h"
 #include "NpcObservation.h"
 
@@ -27,7 +29,11 @@ constexpr GuardReaction DecideGuardReaction(const IdentityObservation &identity)
 // in AppearanceMemoryService.
 class GuardReactionAdapter {
 public:
-  void OnObserved(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, const IdentityObservation &identity);
+  // Where the live-tuned hostility settings come from and attacks are counted.
+  void Configure(DebugBoard *board);
+
+  // Returns what hostility decided, for the debug panel.
+  HostilityVerdict OnObserved(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, const IdentityObservation &identity);
 
   // Shows whatever the notice board has grouped since the last pass.
   void BeginPass();
@@ -36,6 +42,8 @@ public:
 
 private:
   GuardNoticeBoard notices;
+  GuardHostility hostility;
+  DebugBoard *debug = nullptr;
 };
 
 } // namespace SkyrimRemember

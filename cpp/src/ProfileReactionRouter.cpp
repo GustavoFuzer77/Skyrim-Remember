@@ -2,12 +2,15 @@
 
 namespace SkyrimRemember {
 
-void ProfileReactionRouter::OnObserved(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome,
-                                       const IdentityObservation &identity) {
+void ProfileReactionRouter::Configure(DebugBoard *board) {
+  guards.Configure(board);
+}
+
+HostilityVerdict ProfileReactionRouter::OnObserved(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome,
+                                                   const IdentityObservation &identity) {
   switch (context.profile) {
   case NpcProfile::Guard:
-    guards.OnObserved(actor, context, outcome, identity);
-    break;
+    return guards.OnObserved(actor, context, outcome, identity);
   case NpcProfile::Follower:
   case NpcProfile::Citizen:
   case NpcProfile::Merchant:
@@ -16,6 +19,7 @@ void ProfileReactionRouter::OnObserved(RE::Actor &actor, const NpcObservationCon
     // separate adapters without changing the observation or memory layers.
     break;
   }
+  return HostilityVerdict::Calm;
 }
 
 void ProfileReactionRouter::BeginPass() {

@@ -2,6 +2,8 @@
 // and the notices they produce.
 
 #include "TestSupport.h"
+#include "DebugBoard.h"
+#include "GuardHostility.h"
 #include "GuardNotices.h"
 #include "GuardReactionAdapter.h"
 #include "NpcProfile.h"
@@ -169,6 +171,92 @@ TEST_CASE("GuardNotices") {
   REQUIRE(FormatGuardNotice(GuardReaction::Unrecognized, 1) == "A guard no longer recognizes you.");
   REQUIRE(FormatGuardNotice(GuardReaction::Unrecognized, 2) == "2 guards no longer recognize you.");
   REQUIRE(FormatGuardNotice(GuardReaction::Recognized, 0).empty());
+}
+
+TEST_CASE("GuardHostility") {
+  using std::chrono::seconds;
+  const auto start = GuardHostility::Clock::time_point{} + std::chrono::hours{1};
+  const HostilitySettings settings;
+  GuardHostility hostility;
+
+  // Only a guard who recognizes a Player suspicious enough attacks.
+  REQUIRE(hostility.Decide(1, false, 90.0F, false, start, settings) == HostilityVerdict::NotRecognized);
+  REQUIRE(hostility.Decide(1, true, 15.0F, false, start, settings) == HostilityVerdict::Calm); // hide armor
+  REQUIRE(hostility.Decide(1, true, settings.suspicionThreshold, false, start, settings) == HostilityVerdict::Attack);
+
+  // Once fighting, nothing new starts, and after the fight the cooldown holds
+  // the guard back so yielding is not answered by an instant rematch.
+  REQUIRE(hostility.Decide(1, true, 40.0F, true, start + seconds{1}, settings) == HostilityVerdict::InCombat);
+  REQUIRE(hostility.Decide(1, true, 40.0F, false, start + seconds{5}, settings) == HostilityVerdict::CoolingDown);
+  REQUIRE(hostility.Decide(1, true, 40.0F, false, start + settings.cooldown, settings) == HostilityVerdict::Attack);
+
+  // Each guard keeps its own cooldown.
+  REQUIRE(hostility.Decide(2, true, 40.0F, false, start + settings.cooldown, settings) == HostilityVerdict::Attack);
+
+  // The panel can switch it off or retune it live.
+  HostilitySettings off = settings;
+  off.enabled = false;
+  REQUIRE(hostility.Decide(3, true, 100.0F, false, start, off) == HostilityVerdict::Disabled);
+  HostilitySettings touchy = settings;
+  touchy.suspicionThreshold = 10.0F;
+  REQUIRE(hostility.Decide(3, true, 15.0F, false, start, touchy) == HostilityVerdict::Attack);
+
+  hostility.Reset();
+  REQUIRE(hostility.Decide(1, true, 40.0F, false, start + seconds{6}, settings) == HostilityVerdict::Attack);
+
+  for (const auto verdict : {HostilityVerdict::Calm, HostilityVerdict::Attack, HostilityVerdict::Disabled, HostilityVerdict::NotRecognized,
+                             HostilityVerdict::InCombat, HostilityVerdict::CoolingDown}) {
+    REQUIRE(std::strcmp(HostilityVerdictName(verdict), "unknown") != 0);
+  }
+}
+
+TEST_CASE("DebugBoard") {
+  using std::chrono::seconds;
+  const auto start = DebugBoard::Clock::time_point{} + std::chrono::hours{1};
+  DebugBoard board;
+
+  DebugRow far;
+  far.referenceFormId = 0x10;
+  far.distance = 900.0F;
+  DebugRow near;
+  near.referenceFormId = 0x20;
+  near.distance = 100.0F;
+  board.Record(far, start);
+  board.Record(near, start + seconds{10});
+
+  // Nearest first, and a newer record of the same NPC replaces the old one.
+  auto rows = board.Rows();
+  REQUIRE(rows.size() == 2);
+  REQUIRE(rows[0].referenceFormId == 0x20);
+  far.distance = 50.0F;
+  board.Record(far, start + seconds{10});
+  rows = board.Rows();
+  REQUIRE(rows.size() == 2);
+  REQUIRE(rows[0].referenceFormId == 0x10);
+
+  // NPCs that stopped perceiving the Player drop off after the retention.
+  near.distance = 1.0F;
+  board.Record(near, start);
+  board.Prune(start + DebugBoard::rowRetention + seconds{1});
+  rows = board.Rows();
+  REQUIRE(rows.size() == 1);
+  REQUIRE(rows[0].referenceFormId == 0x10);
+
+  // Status updates keep the attack count, which only the game side advances.
+  board.CountAttack();
+  DebugStatus status;
+  status.impressions = 2;
+  board.SetStatus(status);
+  REQUIRE(board.Status().attacksStarted == 1);
+  REQUIRE(board.Status().impressions == 2);
+
+  HostilitySettings settings;
+  settings.suspicionThreshold = 50.0F;
+  board.SetHostility(settings);
+  REQUIRE(board.Hostility().suspicionThreshold == 50.0F);
+
+  board.Clear();
+  REQUIRE(board.Rows().empty());
 }
 
 TEST_SUITE_END();

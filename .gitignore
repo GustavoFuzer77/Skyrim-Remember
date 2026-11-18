@@ -11,3 +11,5 @@
 
 /docs
 cpp/playground/
+# Personal presets, such as where the dev build is deployed
+CMakeUserPresets.json

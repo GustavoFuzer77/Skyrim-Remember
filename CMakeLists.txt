@@ -55,7 +55,10 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
         cpp/include/Appearance.h
         cpp/include/AppearanceMemoryService.h
+        cpp/include/DebugBoard.h
+        cpp/include/DebugPanel.h
         cpp/include/EquipmentBatch.h
+        cpp/include/GuardHostility.h
         cpp/include/GuardNotices.h
         cpp/include/GuardReactionAdapter.h
         cpp/include/ImpressionRules.h
@@ -65,6 +68,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/ObservationTuning.h
         cpp/include/Memory.h
         cpp/include/MemoryTuning.h
+        cpp/include/Papyrus.h
         cpp/include/Persistence.h
         cpp/include/PlayerAppearance.h
         cpp/include/ProfileReactionRouter.h
@@ -72,7 +76,10 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/include/RuleBook.h
         cpp/src/Appearance.cpp
         cpp/src/AppearanceMemoryService.cpp
+        cpp/src/DebugBoard.cpp
+        cpp/src/DebugPanel.cpp
         cpp/src/EquipmentBatch.cpp
+        cpp/src/GuardHostility.cpp
         cpp/src/GuardNotices.cpp
         cpp/src/GuardReactionAdapter.cpp
         cpp/src/ImpressionRules.cpp
@@ -82,6 +89,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         cpp/src/NpcObservation.cpp
         cpp/src/NpcObservationService.cpp
         cpp/src/NpcProfile.cpp
+        cpp/src/Papyrus.cpp
         cpp/src/Persistence.cpp
         cpp/src/Plugin.cpp
         cpp/src/PlayerAppearance.cpp
@@ -94,8 +102,30 @@ target_include_directories(${PROJECT_NAME} PRIVATE cpp/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_precompile_headers(${PROJECT_NAME} PRIVATE cpp/include/PCH.h)
 
+# The debug panel talks to SKSE Menu Framework through its client header, which
+# resolves every call at runtime: nothing is linked, and without the framework
+# installed the panel simply stays off. The header includes <windows.h>, which
+# clashes with CommonLibSSE, so its one translation unit skips the PCH and is
+# the only one that sees the header.
+set_source_files_properties(cpp/src/DebugPanel.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SKSEMenuFramework")
+
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /permissive- /EHsc)
+endif()
+
+# Optional: copy the plugin and its data into a mod folder after every build,
+# so the game picks up the new build without manual copying. Set it in a
+# CMakeUserPresets.json, which stays out of git because the path is personal.
+set(SKYRIM_REMEMBER_DEPLOY_DIR "" CACHE PATH "Mod folder the built plugin is copied into after each build")
+if(SKYRIM_REMEMBER_DEPLOY_DIR)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SKYRIM_REMEMBER_DEPLOY_DIR}/SKSE/Plugins"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${PROJECT_NAME}>" "${SKYRIM_REMEMBER_DEPLOY_DIR}/SKSE/Plugins/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/data" "${SKYRIM_REMEMBER_DEPLOY_DIR}"
+        COMMENT "Deploying Skyrim Remember to ${SKYRIM_REMEMBER_DEPLOY_DIR}"
+        VERBATIM)
 endif()
 
 include(CTest)
@@ -114,6 +144,8 @@ if(BUILD_TESTING)
         cpp/tests/PersistenceTests.cpp
         cpp/tests/RuleTests.cpp
         cpp/src/Appearance.cpp
+        cpp/src/DebugBoard.cpp
+        cpp/src/GuardHostility.cpp
         cpp/src/GuardNotices.cpp
         cpp/src/Memory.cpp
         cpp/src/MemorySerialization.cpp

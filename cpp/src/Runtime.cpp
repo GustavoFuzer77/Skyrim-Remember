@@ -1,14 +1,18 @@
 #include "Runtime.h"
 #include "AppearanceMemoryService.h"
+#include "DebugBoard.h"
+#include "DebugPanel.h"
 #include "EquipmentBatch.h"
 #include "ImpressionRules.h"
 #include "Memory.h"
 #include "NpcObservationService.h"
 #include "NpcProfile.h"
 #include "ObservationTuning.h"
+#include "Papyrus.h"
 #include "Persistence.h"
 #include "ProfileReactionRouter.h"
 
+#include <RE/A/Actor.h>
 #include <RE/M/MenuOpenCloseEvent.h>
 #include <RE/P/PlayerCharacter.h>
 #include <RE/S/ScriptEventSourceHolder.h>
@@ -19,6 +23,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 namespace SkyrimRemember {
 
@@ -59,6 +64,13 @@ public:
     }
 
     appearanceMemory.Configure(store.get());
+    reactions.Configure(debug);
+
+    // Script natives are optional: without them the mod still works, scripts
+    // just cannot ask it anything.
+    if (!Papyrus::Register(store.get())) {
+      SKSE::log::error("Papyrus functions could not be registered");
+    }
 
     // Runtime is a function-local static, so it outlives every task the batch
     // and the observation service schedule.
@@ -71,11 +83,13 @@ public:
         [this](NpcObservationService::Trigger) {
           this->appearanceMemory.BeginObservationPass();
           this->reactions.BeginPass();
+          this->debug->Prune(DebugBoard::Clock::now());
         },
         [this](RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, NpcObservationService::Trigger trigger) {
           const auto identity = this->appearanceMemory.Observe(context, outcome, trigger == NpcObservationService::Trigger::AppearanceChanged);
           if (identity) {
-            this->reactions.OnObserved(actor, context, outcome, *identity);
+            const auto hostility = this->reactions.OnObserved(actor, context, outcome, *identity);
+            this->RecordForDebug(actor, context, outcome, *identity, hostility);
           }
         });
 
@@ -118,6 +132,7 @@ private:
   bool equipmentAttached = false;
   bool menuAttached = false;
   bool rulesLoaded = false;
+  bool debugPanelAttached = false;
   bool playing = false;
   bool sessionReady = false;
 
@@ -126,14 +141,40 @@ private:
   AppearanceMemoryService appearanceMemory;
   ProfileReactionRouter reactions;
 
+  // What the debug panel shows. Never freed: the panel reads it on the render
+  // thread, which may still draw a frame while the process shuts down.
+  DebugBoard *debug = new DebugBoard();
+  DebugStatus debugStatus;
+
   // Declared last on purpose: its destructor stops and joins the timer thread
   // before the adapters and the store its tasks reach into are destroyed.
   NpcObservationService observations;
 
   void SetPlaying(bool value) {
     playing = value;
+    debugStatus.playing = value;
+    debug->SetStatus(debugStatus);
     appearanceMemory.SetSessionActive(value);
     observations.SetActive(value);
+  }
+
+  // Copies what the panel shows out of the live Actor, on the main thread.
+  void RecordForDebug(RE::Actor &actor, const NpcObservationContext &context, const PerceptionOutcome &outcome, const IdentityObservation &identity,
+                      HostilityVerdict hostility) {
+    DebugRow row;
+    row.referenceFormId = context.referenceFormId;
+    if (const auto *name = actor.GetName()) {
+      row.name = name;
+    }
+    row.profile = context.profile;
+    row.distance = outcome.distance;
+    row.recognized = identity.appearance.recognized;
+    row.outfitSimilarity = identity.appearance.outfitSimilarity;
+    row.recognitionThreshold = identity.appearance.recognitionThreshold;
+    row.axes = identity.axes;
+    row.hostility = hostility;
+    row.inCombat = actor.IsInCombat();
+    debug->Record(std::move(row), DebugBoard::Clock::now());
   }
 
   void FlushEquipmentBatch(std::uint64_t batchedEvents) {
@@ -239,6 +280,19 @@ private:
       const auto rules = ImpressionRules::Load(store.get());
       appearanceMemory.SetImpressionsEnabled(rules.boundReferences > 0);
       rulesLoaded = true;
+      debugStatus.impressions = rules.impressions;
+      debugStatus.references = rules.references;
+      debugStatus.boundReferences = rules.boundReferences;
+      debug->SetStatus(debugStatus);
+    }
+    if (!debugPanelAttached) {
+      // Every SKSE plugin is loaded by now, so the framework is found if it is
+      // installed at all.
+      debugPanelAttached = true;
+      const auto panel = DebugPanel::Register(debug);
+      SKSE::log::info("Debug panel: {}",
+                      panel == DebugPanel::Registration::Registered ? "registered with SKSE Menu Framework"
+                                                                    : "SKSE Menu Framework not installed, panel off");
     }
     auto *scriptEvents = RE::ScriptEventSourceHolder::GetSingleton();
     if (!scriptEvents) {
@@ -286,6 +340,7 @@ private:
     observations.Reset();
     appearanceMemory.Reset();
     reactions.Reset();
+    debug->Clear();
     SKSE::log::info("Memory load preparation: reason={}", reason);
   }
 
